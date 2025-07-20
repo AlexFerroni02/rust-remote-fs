@@ -1,0 +1,32 @@
+
+use reqwest::Client;
+
+
+
+pub async fn get_files_from_server(client: &Client, path: &str) -> Result<Vec<String>, reqwest::Error> {
+    let url = if path.is_empty() {
+        "http://localhost:8080/list/".to_string()
+    } else {
+        format!("http://localhost:8080/list/{}", path)
+    };
+    println!("API Client: requesting file list from {}", url);
+    let response = client.get(&url).send().await?;
+    response.json::<Vec<String>>().await
+}
+
+pub async fn get_file_content_from_server(client: &Client, path: &str) -> Result<String, reqwest::Error> {
+    let url = format!("http://localhost:8080/files/{}", path);
+    let response = client.get(&url).send().await?;
+    response.text().await
+}
+
+pub async fn put_file_content_to_server(client: &Client, path: &str, content: &str) -> Result<(), reqwest::Error> {
+    let url = format!("http://localhost:8080/files/{}", path);
+    client.put(&url)
+        .body(content.to_string())
+        .send()
+        .await?
+        .error_for_status()?;
+    Ok(())
+}
+

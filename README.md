@@ -84,6 +84,47 @@ This document contains all the necessary steps to configure the development envi
 ---
 
 
+# How to Run the Server and Client
 
 
+## 1. Start the Server
 
+Open a terminal and navigate to the server directory:
+
+```bash
+cd ~/projects/REPO_NAME/server
+cargo run
+```
+
+The server will start and listen for requests (usually on `localhost:8080`).
+
+---
+
+## 2. Start the Client
+
+Open a **second terminal** and navigate to the client directory:
+
+```bash
+cd ~/projects/REPO_NAME/client
+cargo run -- /tmp/mountpoint
+```
+
+Replace `/tmp/mountpoint` with the path where you want to mount the remote filesystem.  
+Make sure the directory exists (create it if necessary):
+
+```bash
+mkdir -p /tmp/mountpoint
+```
+
+---
+## 3. Access the Mounted Filesystem
+
+Once the client is running, you can access the remote files via the mountpoint:
+
+```bash
+ls /tmp/mountpoint
+```
+
+You can use standard file commands (`cat`, `cp`, etc.) on files in the mountpoint.
+
+---
