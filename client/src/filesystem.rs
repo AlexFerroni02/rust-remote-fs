@@ -26,6 +26,11 @@ const ROOT_DIR_ATTR: FileAttr = FileAttr {
 pub struct RemoteFS {
     client: reqwest::Client,
     runtime: tokio::runtime::Runtime,
+    inode_to_path: HashMap<u64, String>,
+    path_to_inode: HashMap<String, u64>,
+    inode_to_type: HashMap<u64, FileType>,
+    next_inode: u64,
+    
 }
 
 impl RemoteFS {
@@ -36,49 +41,126 @@ impl RemoteFS {
             .build()
             .unwrap();
 
+        let mut inode_to_path = HashMap::new();
+        let mut path_to_inode = HashMap::new();
+        let mut inode_to_type = HashMap::new();
+        // Initialize the root
+        inode_to_path.insert(1, "".to_string());
+        path_to_inode.insert("".to_string(), 1);
+        inode_to_type.insert(1, FileType::Directory);
         Self {
             client: reqwest::Client::new(),
             runtime,
+            inode_to_path,
+            path_to_inode,
+            inode_to_type,
+            next_inode: 2, 
         }
     }
 }
 
+
 // --- Implementazione del Trait Filesystem ---
 impl Filesystem for RemoteFS {
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
+        println!("📋 GETATTR: ino={}", ino);
         if ino == 1 {
             reply.attr(&TTL, &ROOT_DIR_ATTR);
+            return;
+        }
+        
+        // Cerca il path nella mappa
+        if let Some(path) = self.inode_to_path.get(&ino) {
+            // Per ora, restituisci attributi fittizi
+            // In futuro, potresti chiedere al server gli attributi reali
+            let kind = self.inode_to_type.get(&ino).copied().unwrap_or(FileType::RegularFile);
+            println!("📋 GETATTR: path='{}', kind={:?}", path, kind);
+            let attrs = FileAttr {
+                ino,
+                size: 1024,
+                blocks: 1,
+                kind,
+                perm: if kind == FileType::Directory { 0o755 } else { 0o644 },
+                nlink: 1,
+                uid: 501,
+                gid: 20,
+                atime: UNIX_EPOCH, mtime: UNIX_EPOCH, ctime: UNIX_EPOCH,
+                crtime: UNIX_EPOCH, rdev: 0, flags: 0, blksize: 5120,
+            };
+            reply.attr(&TTL, &attrs);
         } else {
-            // Per ora, non conosciamo altri inode, quindi restituiamo un errore.
-            // `lookup` e `readdir` si occuperanno di fornire gli attributi per gli altri file.
             reply.error(ENOENT);
         }
     }
 
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        // Logica semplificata che funziona solo per la root (parent == 1)
-        if parent != 1 {
-            reply.error(ENOENT);
+            // 1. Ricava il path della directory padre
+        let parent_path = match self.inode_to_path.get(&parent) {
+            Some(p) => p.clone(),
+            None => {
+                reply.error(ENOENT);
+                return;
+            }
+        };
+
+        let name_str = name.to_str().unwrap_or("");
+        println!("🔍 LOOKUP: parent={}, name='{}'", parent, name_str);
+        // 2. Costruisci il path completo
+        let full_path = if parent_path.is_empty() {
+            name_str.to_string()
+        } else {
+            format!("{}/{}", parent_path, name_str)
+        };
+
+        // 3. Se già in mappa, restituisci subito
+        if let Some(&inode) = self.path_to_inode.get(&full_path) {
+            println!("Client: Found cached inode {} for path '{}'", inode, full_path);
+            let kind = self.inode_to_type.get(&inode).copied().unwrap_or(FileType::RegularFile);
+            
+            let attrs = FileAttr {
+                ino: inode,
+                size: 1024,
+                blocks: 1,
+                kind,
+                perm: if kind == FileType::Directory { 0o755 } else { 0o644 },
+                nlink: 1,
+                uid: 501,
+                gid: 20,
+                atime: UNIX_EPOCH, mtime: UNIX_EPOCH, ctime: UNIX_EPOCH,
+                crtime: UNIX_EPOCH, rdev: 0, flags: 0, blksize: 5120,
+            };
+            reply.entry(&TTL, &attrs, 0);
             return;
         }
 
-        let filename_to_find = name.to_str().unwrap_or("");
-        
-        // Chiede sempre e solo la lista di file della root
+        // 4. Chiedi al server la lista della directory padre
+        println!("Client: Querying server for parent path '{}'", parent_path);
         let file_list = self.runtime.block_on(async {
-            get_files_from_server(&self.client, "").await
+            get_files_from_server(&self.client, &parent_path).await
         });
 
         if let Ok(files) = file_list {
-            if let Some((i, file_name)) = files.iter().enumerate().find(|(_, s)| s.as_str() == filename_to_find) {
+            // 5. Cerca il file/directory richiesto
+            if let Some(found_file) = files.iter().find(|f| {
+                f.trim_end_matches('/') == name_str
+            }) {
+                // 6. Assegna un nuovo inode
+                let inode = self.next_inode;
+                self.next_inode += 1;
                 
-                // Logica fragile di generazione inode: da migliorare con la mappa
-                let ino = i as u64 + 2; 
-                let kind = if file_name.ends_with('/') { FileType::Directory } else { FileType::RegularFile };
+                let is_dir = found_file.ends_with('/');
+                let kind = if is_dir { FileType::Directory } else { FileType::RegularFile };
+                println!("📁 LOOKUP: Found '{}', is_dir={}, kind={:?}", found_file, is_dir, kind);
+                // 7. Aggiorna le mappe
+                self.inode_to_path.insert(inode, full_path.clone());
+                self.path_to_inode.insert(full_path.clone(), inode);
+                self.inode_to_type.insert(inode, kind);
 
+                
+                
                 let attrs = FileAttr {
-                    ino,
-                    size: 1024, // Fittizio
+                    ino: inode,
+                    size: 1024,
                     blocks: 1,
                     kind,
                     perm: if kind == FileType::Directory { 0o755 } else { 0o644 },
@@ -88,46 +170,74 @@ impl Filesystem for RemoteFS {
                     atime: UNIX_EPOCH, mtime: UNIX_EPOCH, ctime: UNIX_EPOCH,
                     crtime: UNIX_EPOCH, rdev: 0, flags: 0, blksize: 5120,
                 };
+                
+                println!("Client: Created new inode {} for path '{}'", inode, full_path);
                 reply.entry(&TTL, &attrs, 0);
             } else {
+                println!("Client: File '{}' not found in parent '{}'", name_str, parent_path);
                 reply.error(ENOENT);
             }
         } else {
+            println!("Client: Failed to get file list for parent '{}'", parent_path);
             reply.error(ENOENT);
         }
     }
     
     fn readdir(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, mut reply: ReplyDirectory) {
-        // Ignora l'inode e chiede sempre la root: questo è il punto da migliorare.
-        if ino != 1 {
-            reply.error(ENOENT);
-            return;
-        }
+            // 1. Ricava il path dalla mappa
+        let dir_path = match self.inode_to_path.get(&ino) {
+            Some(p) => p.clone(),
+            None => {
+                println!("Client: Unknown inode {} in readdir", ino);
+                reply.error(ENOENT);
+                return;
+            }
+        };
 
+        println!("READDIRE Client: Reading directory '{}'", dir_path);
+
+        // 2. Chiedi al server la lista dei file
         let file_list = self.runtime.block_on(async {
-            get_files_from_server(&self.client, "").await
+            get_files_from_server(&self.client, &dir_path).await
         });
 
         let mut entries = vec![
-            (1, FileType::Directory, ".".to_string()),
-            (1, FileType::Directory, "..".to_string()),
+            (ino, FileType::Directory, ".".to_string()),
+            (1, FileType::Directory, "..".to_string()), // Parent sempre root per ora
         ];
 
         if let Ok(files) = file_list {
-            for (i, mut file_name) in files.into_iter().enumerate() {
-                let inode = i as u64 + 2; // Logica fragile: da migliorare
-                let kind = if file_name.ends_with('/') {
-                    file_name.pop();
-                    FileType::Directory
+            for file_name in files {
+                let is_dir = file_name.ends_with('/');
+                let clean_name = file_name.trim_end_matches('/').to_string();
+                
+                // 3. Costruisci il path completo
+                let full_path = if dir_path.is_empty() {
+                    clean_name.clone()
                 } else {
-                    FileType::RegularFile
+                    format!("{}/{}", dir_path, clean_name)
                 };
-                entries.push((inode, kind, file_name));
+
+                // 4. Trova o crea inode
+                let inode = if let Some(&existing_ino) = self.path_to_inode.get(&full_path) {
+                    existing_ino
+                } else {
+                    let new_ino = self.next_inode;
+                    self.next_inode += 1;
+                    self.inode_to_path.insert(new_ino, full_path.clone());
+                    self.path_to_inode.insert(full_path, new_ino);
+                    new_ino
+                };
+
+                let kind = if is_dir { FileType::Directory } else { FileType::RegularFile };
+                self.inode_to_type.insert(inode, kind);
+                entries.push((inode, kind, clean_name));
             }
-        } else if let Err(e) = file_list {
-            eprintln!("Error fetching files from server: {}", e);
+        } else {
+            println!("Client: Failed to get file list for '{}'", dir_path);
         }
 
+        // 5. Restituisci le entries
         for (i, entry) in entries.into_iter().enumerate().skip(offset as usize) {
             if reply.add(entry.0, (i + 1) as i64, entry.1, &entry.2) {
                 break;
@@ -296,10 +406,5 @@ impl Filesystem for RemoteFS {
             reply.error(ENOENT);
         }
     }
-    // Incolla qui le tue funzioni `read`, `open`, `create`, `setattr`, `write`...
-    // Assicurati che usino una logica simile a quella qui sopra, ovvero:
-    // 1. Chiamare `get_files_from_server` per avere la lista.
-    // 2. Usare la logica `files.get((ino - 2) as usize)` per "indovinare" il nome del file.
-    // Questo è un approccio fragile ma è quello che avevi nel tuo codice originale e
-    // ti permette di avere una base funzionante prima di introdurre la mappa.
+    
 }

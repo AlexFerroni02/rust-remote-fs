@@ -128,3 +128,71 @@ ls /tmp/mountpoint
 You can use standard file commands (`cat`, `cp`, etc.) on files in the mountpoint.
 
 ---
+
+## Main FUSE Filesystem Functions
+
+- **getattr**: Given an inode, returns the attributes (size, permissions, type, timestamps, etc.) of the file or directory.
+- **lookup**: Searches for a directory entry by name within a parent directory. If it exists, returns the inode and attributes; otherwise, returns an error.
+- **readdir**: Lists the contents of a directory, returning for each entry its name, inode, and type (file or directory).
+- **read**: Returns the content (or a portion) of a remote file given its inode, offset, and requested size.
+- **write**: Writes data to a remote file starting at a given offset.
+
+These functions allow the kernel to navigate and manipulate the remote filesystem as if it were local.
+
+## Command Flows (Tested & Working)
+
+### 📁 **`ls` Command Flows**
+da usare con bin perche senno cerca anche un file ls nel codice va aggiunto che i comandi non vanno cercati, pero per ora per capire il flusso meglio provare cosi
+#### **Case 1: `/bin/ls` (current directory)**
+```
+1. Shell calls → FUSE readdir(inode_of_current_directory)
+2. Client maps inode → path using inode_to_path cache
+3. Client sends → GET /list/{current_path} to server
+4. Server returns → ["file1.txt", "ciao/"]
+5. Client processes response and returns directory entries
+6. Shell displays: file1.txt  dir1/  dir2/
+```
+
+#### **Case 2: `/bin/ls dir1` (specific directory)**
+```
+1. Shell calls → FUSE lookup(current_inode, "dir1")
+   - Client queries server → GET /list/{current_path}
+   - Finds "dir1/" in response, recognizes as directory
+   - Creates inode mapping: inode_to_path[new_inode] = "dir1"
+   - Saves: inode_to_type[new_inode] = FileType::Directory
+
+2. Shell calls → FUSE getattr(dir1_inode)
+   - Client returns FileType::Directory (confirms it's accessible)
+
+3. Shell calls → FUSE readdir(dir1_inode)
+   - Client maps dir1_inode → "dir1" path
+   - Client sends → GET /list/dir1 to server
+   - Server returns → ["subfile.txt", "subdir/"]
+   - Client processes and returns entries
+
+4. Shell displays: subfile.txt  subdir/
+```
+#### **Case 3: `/bin/ls dir1/dir2` (nested directory)**
+```
+1. Shell calls → FUSE lookup(current_inode, "dir1")
+   - Client finds/creates inode for "dir1"
+   - Returns dir1_inode
+
+2. Shell calls → FUSE lookup(dir1_inode, "dir2")  
+   - Client maps dir1_inode → "dir1" path
+   - Client sends → GET /list/dir1 to server
+   - Finds "dir2/" in response
+   - Creates inode mapping: inode_to_path[new_inode] = "dir1/dir2"
+   - Saves: inode_to_type[new_inode] = FileType::Directory
+
+3. Shell calls → FUSE getattr(dir2_inode)
+   - Client returns FileType::Directory
+
+4. Shell calls → FUSE readdir(dir2_inode)
+   - Client maps dir2_inode → "dir1/dir2" path  
+   - Client sends → GET /list/dir1/dir2 to server
+   - Server returns directory contents
+   - Client processes and returns entries
+
+5. Shell displays contents of dir1/dir2/
+```

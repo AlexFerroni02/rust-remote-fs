@@ -20,7 +20,8 @@ async fn main() {
     // Ora il router è molto più leggibile
     let app = Router::new()
         .route("/health", get(|| async { "OK" }))
-        .route("/list/", get(list_dir)) // La tua rotta statica che ora funziona
+        .route("/list/", get(|| list_dir(None))) // per la gestione della root perche senza non va
+        .route("/list/*path", get(|path| list_dir(Some(path)))) 
         .route("/files/*path", get(get_file).put(put_file).delete(delete_file))
         .route("/mkdir/*path", post(mkdir));
 
