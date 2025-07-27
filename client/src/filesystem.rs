@@ -1,6 +1,6 @@
 use fuser::{
     FileAttr, FileType, Filesystem, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEntry,
-    ReplyOpen, ReplyWrite, Request,
+    ReplyOpen, ReplyWrite, Request,ReplyEmpty
 };
 use libc::ENOENT;
 use std::collections::HashMap;
@@ -247,20 +247,10 @@ impl Filesystem for RemoteFS {
     }
 
     fn read(&mut self,_req: &Request<'_>,ino: u64,fh: u64,offset: i64,size: u32,flags: i32,lock_owner: Option<u64>,reply: fuser::ReplyData,) {
-        let dir_path= "";
-        let file_list = self.runtime.block_on(async {
-            get_files_from_server(&self.client,dir_path ).await
-        });
-
-        let filename = if let Ok(files) = file_list {
-            files.get((ino - 2) as usize).cloned()
-        } else {
-            None
-        };
-
-        if let Some(name) = filename {
+        
+        if let Some(file_path) = self.inode_to_path.get(&ino) {
             let content = self.runtime.block_on(async {
-                get_file_content_from_server(&self.client, &name).await
+                get_file_content_from_server(&self.client, file_path).await
             }).unwrap_or_default();
 
             let start = offset as usize;
@@ -269,6 +259,23 @@ impl Filesystem for RemoteFS {
         } else {
             reply.error(ENOENT);
         }
+    }
+
+    fn write(&mut self,_req: &Request<'_>,ino: u64,fh: u64,offset: i64,data: &[u8],write_flags: u32,flags: i32,lock_owner: Option<u64>,reply: fuser::ReplyWrite,) {
+        
+        if let Some(file_path) = self.inode_to_path.get(&ino) {
+        let content = String::from_utf8_lossy(data).to_string();
+        let res = self.runtime.block_on(async {
+            put_file_content_to_server(&self.client, file_path, &content).await
+        });
+
+        match res {
+            Ok(_) => reply.written(data.len() as u32),
+            Err(_) => reply.error(libc::EIO),
+        }
+    } else {
+        reply.error(ENOENT);
+    }
     }
     
     fn open(&mut self, _req: &Request<'_>, ino: u64, _flags: i32, reply: fuser::ReplyOpen) {
@@ -280,57 +287,53 @@ impl Filesystem for RemoteFS {
     }
     
     fn create(&mut self,_req: &Request<'_>,parent: u64,name: &OsStr,mode: u32,umask: u32,flags: i32,reply: fuser::ReplyCreate,) {
-        let filename = name.to_str().unwrap().to_string();
-        println!("Client: Received CREATE request for {}", filename);
+            // Ottieni il path del parent
+        let parent_path = match self.inode_to_path.get(&parent) {
+            Some(p) => p.clone(),
+            None => {
+                reply.error(ENOENT);
+                return;
+            }
+        };
 
-        // 1. Chiediamo al server di creare un file vuoto.
-        //    La nostra funzione `put` sul server già crea il file se non esiste.
+        let filename = name.to_str().unwrap();
+        
+        // Costruisci il path completo
+        let full_path = if parent_path.is_empty() {
+            filename.to_string()
+        } else {
+            format!("{}/{}", parent_path, filename)
+        };
+
+        // Crea il file sul server
         let create_res = self.runtime.block_on(async {
-            put_file_content_to_server(&self.client, &filename, "").await
+            put_file_content_to_server(&self.client, &full_path, "").await
         });
 
         if create_res.is_err() {
-            reply.error(ENOENT); // Errore durante la creazione sul server
+            reply.error(libc::EIO);
             return;
         }
 
-        // 2. Ora che il file esiste sul server, recuperiamo la lista aggiornata
-        //    per trovare il suo nuovo inode e gli attributi.
-        let dir_path= "";
-        let file_list = self.runtime.block_on(async {
-            get_files_from_server(&self.client,dir_path ).await
-        });
+        // Assegna nuovo inode e aggiorna le mappe
+        let inode = self.next_inode;
+        self.next_inode += 1;
+        
+        self.inode_to_path.insert(inode, full_path.clone());
+        self.path_to_inode.insert(full_path, inode);
+        self.inode_to_type.insert(inode, FileType::RegularFile);
 
-        if let Ok(files) = file_list {
-            if let Some((i, _)) = files.iter().enumerate().find(|(_, s)| *s == &filename) {
-                let inode = i as u64 + 2;
-                let attrs = FileAttr {
-                    ino: inode,
-                    size: 0, // Il file è nuovo e vuoto
-                    blocks: 0,
-                    atime: UNIX_EPOCH,
-                    mtime: UNIX_EPOCH,
-                    ctime: UNIX_EPOCH,
-                    crtime: UNIX_EPOCH,
-                    kind: FileType::RegularFile,
-                    perm: mode as u16, // Usiamo i permessi richiesti dalla chiamata `create`
-                    nlink: 1,
-                    uid: 501, // Dovresti usare l'uid dell'utente che esegue il comando
-                    gid: 20,  // e il suo gid
-                    rdev: 0,
-                    flags: 0,
-                    blksize: 5120,
-                };
-                // 3. Rispondiamo con successo, fornendo gli attributi e il file handle.
-                println!("Client: File {} created successfully with inode {}", filename, inode);
-                reply.created(&TTL, &attrs, 0, inode, 0);
-            } else {
-                // Non dovrebbe succedere se il PUT ha funzionato
-                reply.error(ENOENT);
-            }
-        } else {
-            reply.error(ENOENT);
-        }
+        let attrs = FileAttr {
+            ino: inode,
+            size: 0,
+            blocks: 0,
+            atime: UNIX_EPOCH, mtime: UNIX_EPOCH, ctime: UNIX_EPOCH, crtime: UNIX_EPOCH,
+            kind: FileType::RegularFile,
+            perm: mode as u16,
+            nlink: 1, uid: 501, gid: 20, rdev: 0, flags: 0, blksize: 5120,
+        };
+
+        reply.created(&TTL, &attrs, 0, inode, 0);
     }
     
     fn setattr(&mut self,_req: &Request<'_>, ino: u64,
@@ -377,34 +380,93 @@ impl Filesystem for RemoteFS {
         };
         reply.attr(&TTL, &dummy_attrs);
     }
-
-    fn write(&mut self,_req: &Request<'_>,ino: u64,fh: u64,offset: i64,data: &[u8],write_flags: u32,flags: i32,lock_owner: Option<u64>,reply: fuser::ReplyWrite,) {
-        // Ricava il nome del file dall'inode
-        let dir_path= "";
-        let file_list = self.runtime.block_on(async {
-            get_files_from_server(&self.client,dir_path ).await
-        });
-
-        let filename = if let Ok(files) = file_list {
-            files.get((ino - 2) as usize).cloned()
-        } else {
-            None
+    // creazione cartella
+    fn mkdir(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, mode: u32,umask: u32, reply: ReplyEntry) {
+        let parent_path = match self.inode_to_path.get(&parent) {
+            Some(p) => p.clone(),
+            None => {
+                reply.error(ENOENT);
+                return;
+            }
         };
 
-        if let Some(name) = filename {
-            // Per semplicità, sovrascriviamo tutto il file (offset ignorato)
-            let content = String::from_utf8_lossy(data).to_string();
-            let res = self.runtime.block_on(async {
-                put_file_content_to_server(&self.client, &name, &content).await
-            });
-
-            match res {
-                Ok(_) => reply.written(data.len() as u32),
-                Err(_) => reply.error(ENOENT),
-            }
+        let dirname = name.to_str().unwrap();
+        let full_path = if parent_path.is_empty() {
+            dirname.to_string()
         } else {
-            reply.error(ENOENT);
+            format!("{}/{}", parent_path, dirname)
+        };
+
+        // Chiama il server per creare la directory
+        let result = self.runtime.block_on(async {
+            let url = format!("http://localhost:8080/mkdir/{}", full_path);
+            self.client.post(&url).send().await
+        });
+
+        if result.is_err() {
+            reply.error(libc::EIO);
+            return;
         }
+
+        // Assegna nuovo inode e aggiorna le mappe
+        let inode = self.next_inode;
+        self.next_inode += 1;
+        
+        self.inode_to_path.insert(inode, full_path.clone());
+        self.path_to_inode.insert(full_path, inode);
+        self.inode_to_type.insert(inode, FileType::Directory);
+
+        let attrs = FileAttr {
+            ino: inode,
+            size: 0, blocks: 0,
+            atime: UNIX_EPOCH, mtime: UNIX_EPOCH, ctime: UNIX_EPOCH, crtime: UNIX_EPOCH,
+            kind: FileType::Directory,
+            perm: mode as u16,
+            nlink: 2, uid: 501, gid: 20, rdev: 0, flags: 0, blksize: 5120,
+        };
+
+        reply.entry(&TTL, &attrs, 0);
     }
-    
+    // cancellazione file
+    fn unlink(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+        let parent_path = match self.inode_to_path.get(&parent) {
+            Some(p) => p.clone(),
+            None => {
+                reply.error(ENOENT);
+                return;
+            }
+        };
+
+        let filename = name.to_str().unwrap();
+        let full_path = if parent_path.is_empty() {
+            filename.to_string()
+        } else {
+            format!("{}/{}", parent_path, filename)
+        };
+
+        // Chiama il server per cancellare il file
+        let result = self.runtime.block_on(async {
+            let url = format!("http://localhost:8080/files/{}", full_path);
+            self.client.delete(&url).send().await
+        });
+
+        if result.is_err() {
+            reply.error(libc::EIO);
+            return;
+        }
+
+        // Rimuovi dalle mappe se presente
+        if let Some(&inode) = self.path_to_inode.get(&full_path) {
+            self.inode_to_path.remove(&inode);
+            self.inode_to_type.remove(&inode);
+        }
+        self.path_to_inode.remove(&full_path);
+
+        reply.ok();
+    }
+    fn rmdir(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+        // Il server gestisce sia file che directory con DELETE /files/
+        // Quindi riusa la stessa logica di unlink
+        self.unlink(_req, parent, name, reply);
+    }
 }

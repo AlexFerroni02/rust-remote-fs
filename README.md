@@ -196,3 +196,51 @@ da usare con bin perche senno cerca anche un file ls nel codice va aggiunto che 
 
 5. Shell displays contents of dir1/dir2/
 ```
+
+
+# DA AGGIUNGERE 
+echo "Hello World" > test_file.txt
+echo "Line 2" >> test_file.txt questa parte dell'append perche per ora lo sovrascrive.
+- poi vanno aggiunti gli attributi giusti ogni volta che si crea un file.
+- da aggiungere il Rename
+- Controllare se le cose fatte sono state fatte nel modo giusto 
+
+# test per provare il filesystem a mano (capire anche come aggiungere i test Rust)
+
+## Operazioni sui file (funzionano)
+  # Test creazione file (create + write)
+echo "Hello World" > test_file.txt
+echo "Line 2" >> test_file.txt   # Append (non ancora supportato)
+
+# Test lettura file (read)
+/bin/cat test_file.txt
+/bin/head test_file.txt
+/bin/tail test_file.txt
+
+# Test creazione file vuoto
+/bin/touch empty_file.txt
+/bin/ls -la empty_file.txt
+
+# Test sovrascrittura
+echo "New content" > test_file.txt
+/bin/cat test_file.txt           # Dovrebbe mostrare solo "New content"
+
+# Test con caratteri speciali
+echo "Special chars: àèìòù €" > special.txt
+/bin/cat special.txt
+
+
+## Test creazione directory (mkdir)
+/bin/mkdir new_dir
+/bin/mkdir -p nested/deep/path   # Creazione ricorsiva (se supportata)
+/bin/ls -la                      # Verifica creazione
+
+## Test navigazione nelle nuove directory
+cd new_dir
+/bin/pwd
+echo "File in subdir" > file_in_subdir.txt
+/bin/ls -la
+cd ..
+
+per eliminare provare rmdir nome_cartella
+ o rm nome_file
