@@ -264,18 +264,18 @@ impl Filesystem for RemoteFS {
     fn write(&mut self,_req: &Request<'_>,ino: u64,fh: u64,offset: i64,data: &[u8],write_flags: u32,flags: i32,lock_owner: Option<u64>,reply: fuser::ReplyWrite,) {
         
         if let Some(file_path) = self.inode_to_path.get(&ino) {
-        let content = String::from_utf8_lossy(data).to_string();
-        let res = self.runtime.block_on(async {
-            put_file_content_to_server(&self.client, file_path, &content).await
-        });
+            let content = String::from_utf8_lossy(data).to_string();
+            let res = self.runtime.block_on(async {
+                put_file_content_to_server(&self.client, file_path, &content).await
+            });
 
-        match res {
-            Ok(_) => reply.written(data.len() as u32),
-            Err(_) => reply.error(libc::EIO),
+            match res {
+                Ok(_) => reply.written(data.len() as u32),
+                Err(_) => reply.error(libc::EIO),
+            }
+        } else {
+            reply.error(ENOENT);
         }
-    } else {
-        reply.error(ENOENT);
-    }
     }
     
     fn open(&mut self, _req: &Request<'_>, ino: u64, _flags: i32, reply: fuser::ReplyOpen) {
@@ -464,6 +464,7 @@ impl Filesystem for RemoteFS {
 
         reply.ok();
     }
+    
     fn rmdir(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
         // Il server gestisce sia file che directory con DELETE /files/
         // Quindi riusa la stessa logica di unlink

@@ -198,12 +198,6 @@ da usare con bin perche senno cerca anche un file ls nel codice va aggiunto che 
 ```
 
 
-# DA AGGIUNGERE 
-echo "Hello World" > test_file.txt
-echo "Line 2" >> test_file.txt questa parte dell'append perche per ora lo sovrascrive.
-- poi vanno aggiunti gli attributi giusti ogni volta che si crea un file.
-- da aggiungere il Rename
-- Controllare se le cose fatte sono state fatte nel modo giusto 
 
 # test per provare il filesystem a mano (capire anche come aggiungere i test Rust)
 
@@ -244,3 +238,26 @@ cd ..
 
 per eliminare provare rmdir nome_cartella
  o rm nome_file
+
+
+
+ 
+# DA AGGIUNGERE
+
+- Attualmente, la seconda operazione `echo "Line 2" >> test_file.txt` sovrascrive il contenuto invece di aggiungere il testo in coda. Questo comportamento va corretto modificando la funzione `write` per gestire correttamente l'operazione di append, utilizzando il parametro offset.
+
+- È necessario implementare attributi realistici per i file al momento della loro creazione, in modo che mostrino informazioni corrette come dimensione effettiva e timestamp appropriati, invece dei valori predefiniti attualmente utilizzati.
+
+- Manca la funzionalità di rinominazione dei file e delle directory: è necessario implementare la funzione `rename` nel filesystem per supportare il comando `mv`.
+
+- Le mappe attualmente create potrebbero essere ottimizzate, riducendone il numero e memorizzando direttamente tutti gli attributi di un file o di una directory come valore, invece di mantenere solo il tipo in mappe separate.
+
+- Bisogna valutare se esistano altre strategie di cache da implementare, dato che alcune funzioni potrebbero inviare troppe richieste al server in modo ridondante. È da verificare se l'approccio attuale con le mappe sia il più efficiente o se esistano alternative migliori per ridurre il carico di rete.
+
+- Il mapping tra inode e path viene ricreato da zero ogni volta che si riavvia il client. Sarebbe opportuno implementare una soluzione più robusta e persistente che mantenga le informazioni dell'ultimo stato del filesystem, valutando se la struttura attuale delle mappe sia adeguata o necessiti modifiche.
+
+- La gestione degli errori attuale presenta molti `unwrap()` che andrebbero sostituiti con un approccio più elegante se possibile. Inoltre, è necessario implementare test automatici per le API per garantire la robustezza del sistema.
+
+- È importante verificare se vengano rispettate le specifiche richieste dal professore, in particolare la strategia configurabile di invalidazione della cache (`configurable cache invalidation strategy`) e il supporto per file di grandi dimensioni con lettura e scrittura in streaming (`large file streaming read/write`).
+
+- Infine, va controllato se manchino altre funzionalità o se ci siano aspetti che potrebbero essere implementati diversamente per migliorare l'efficienza e la robustezza del sistema
