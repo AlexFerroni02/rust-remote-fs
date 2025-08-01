@@ -261,3 +261,75 @@ per eliminare provare rmdir nome_cartella
 - È importante verificare se vengano rispettate le specifiche richieste dal professore, in particolare la strategia configurabile di invalidazione della cache (`configurable cache invalidation strategy`) e il supporto per file di grandi dimensioni con lettura e scrittura in streaming (`large file streaming read/write`).
 
 - Infine, va controllato se manchino altre funzionalità o se ci siano aspetti che potrebbero essere implementati diversamente per migliorare l'efficienza e la robustezza del sistema
+
+## Test Suite
+
+### Overview
+The test suite ensures full coverage of the server's RESTful API and the client-side FUSE filesystem. It includes tests for:
+1. **Health Check**: Verifies the `/health` endpoint.
+2. **Directory Listing**: Tests `/list/` and `/list/<path>` for root, nested, and empty directories.
+3. **File Operations**: Tests `/files/<path>` for reading, writing, overwriting, and deleting files.
+4. **Directory Operations**: Tests `/mkdir/<path>` for creating directories and `/files/<path>` for deleting directories.
+5. **Error Handling**: Tests invalid paths and ensures proper error codes are returned.
+
+### Running the Tests
+1. Navigate to the `server` directory:
+   ```bash
+   cd ~/projects/REPO_NAME/server
+   ```
+
+2. Run the tests:
+   ```bash
+   cargo test
+   ```
+
+3. Example output:
+   ```
+   running 10 tests
+   test endpoints_tests::test_health_endpoint ... ok
+   test endpoints_tests::test_list_root_directory ... ok
+   ...
+   ```
+
+---
+
+## Running Tests with Coverage
+
+### Install `cargo-tarpaulin`
+1. Install the `cargo-tarpaulin` tool:
+   ```bash
+   cargo install cargo-tarpaulin
+   ```
+
+### Run Tests with Coverage
+1. Run the tests with coverage:
+   ```bash
+   cargo tarpaulin
+   ```
+
+2. Generate an HTML report:
+   ```bash
+   cargo tarpaulin --test endpoints --out Html --output-dir ./coverage
+   ```
+
+3. Open the report:
+   ```bash
+   xdg-open tarpaulin-report.html
+   ```
+
+### Notes
+- Ensure the `reqwest` crate is configured with the `json` feature in `Cargo.toml`:
+   ```toml
+   reqwest = { version = "0.12.22", features = ["json"] }
+   ```
+- If using `tokio` or async tests, you may need to enable the `--force` flag:
+   ```bash
+   cargo tarpaulin --force
+   ```
+
+---
+
+## Additional Notes
+- The test suite is located in `server/tests/endpoints.rs`.
+- The client-side FUSE filesystem can be tested manually using standard file commands (`ls`, `cat`, `echo`, etc.) on the mounted directory.
+```
