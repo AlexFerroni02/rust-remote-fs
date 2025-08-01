@@ -1,9 +1,9 @@
 
 // Dichiara agli altri file che sono moduli di questo crate
 mod api_client;
-mod filesystem;
+mod fs;
 
-use filesystem::RemoteFS; // Importa la struct principale
+use fs::RemoteFS; // Importa la struct principale
 use std::env;
 use fuser::MountOption;
 
