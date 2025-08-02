@@ -332,4 +332,10 @@ The test suite ensures full coverage of the server's RESTful API and the client-
 ## Additional Notes
 - The test suite is located in `server/tests/endpoints.rs`.
 - The client-side FUSE filesystem can be tested manually using standard file commands (`ls`, `cat`, `echo`, etc.) on the mounted directory.
+
+
+## test suite client
+```bash
+chmod +x client/tests/run-tests.sh client/tests/cases/*.sh
+./client/tests/run-tests.sh
 ```
