@@ -20,7 +20,7 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(|| async { "OK" }))
         .route("/files", get(list_directory_contents))
-        .route("/files/*path", get(list_directory_contents))
+        .route("/files/*path", get(list_directory_contents).delete(delete_file))
         .route("/file/*path", get(get_file).put(put_file).delete(delete_file))
         .route("/mkdir/*path", post(mkdir));
 
