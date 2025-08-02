@@ -11,18 +11,39 @@ MOUNT_POINT="/tmp/remote_fs_test_mount"
 SERVER_LOG="/tmp/server.log"
 CLIENT_LOG="/tmp/client.log"
 
+if [ -t 1 ]; then
+  # Se è un terminale, definisci i codici colore
+  COLOR_INFO='\e[34m'
+  COLOR_SUCCESS='\e[32m'
+  COLOR_FAIL='\e[31m'
+  COLOR_RESET='\e[0m'
+else
+  # Se non è un terminale (es. un file), lascia le variabili vuote
+  COLOR_INFO=''
+  COLOR_SUCCESS=''
+  COLOR_FAIL=''
+  COLOR_RESET=''
+fi
 # --- Funzioni di Utility ---
 info() { echo -e "\e[34mINFO: $1\e[0m"; }
 success() { echo -e "\e[32m✔ SUCCESS: $1\e[0m"; }
 fail() { echo -e "\e[31m✖ FAILURE: $1\e[0m"; }
+
+PROJECT_DATA_DIR=$(readlink -f "$BASE_DIR/../../data")
 
 cleanup() {
   info "Pulizia in corso..."
   umount -l "$MOUNT_POINT" 2>/dev/null || true
   pkill -f "target/debug/server" 2>/dev/null || true
   pkill -f "target/debug/client" 2>/dev/null || true
+
+  # Rimuovi la directory di mount e i log
   rm -rf "$MOUNT_POINT"
   rm -f "$SERVER_LOG" "$CLIENT_LOG"
+
+  # AGGIUNGI QUESTA RIGA: Rimuove la cartella 'data' creata alla radice
+  rm -rf "$PROJECT_DATA_DIR"
+
   info "Pulizia completata."
 }
 trap cleanup EXIT

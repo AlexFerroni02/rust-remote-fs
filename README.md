@@ -338,4 +338,5 @@ The test suite ensures full coverage of the server's RESTful API and the client-
 ```bash
 chmod +x client/tests/run-tests.sh client/tests/cases/*.sh
 ./client/tests/run-tests.sh
+./client/tests/run-tests.sh | tee >(sed 's/\x1b\[[0-9;]*m//g' > test_output.log)
 ```
