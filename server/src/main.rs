@@ -7,7 +7,6 @@ use axum::{
 };
 use std::net::SocketAddr;
 use std::fs;
-// Importa tutti gli handler pubblici dal modulo
 use handlers::*;
 
 #[tokio::main]
@@ -20,9 +19,9 @@ async fn main() {
     // Ora il router è molto più leggibile
     let app = Router::new()
         .route("/health", get(|| async { "OK" }))
-        .route("/list/", get(|| list_dir(None))) // per la gestione della root perche senza non va
-        .route("/list/*path", get(|path| list_dir(Some(path)))) 
-        .route("/files/*path", get(get_file).put(put_file).delete(delete_file))
+        .route("/files", get(list_directory_contents))
+        .route("/files/*path", get(list_directory_contents))
+        .route("/file/*path", get(get_file).put(put_file).delete(delete_file))
         .route("/mkdir/*path", post(mkdir));
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 8080));

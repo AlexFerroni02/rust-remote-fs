@@ -1,65 +1,49 @@
-use fuser::{FileAttr, FileType, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry, ReplyOpen, Request};
+// src/fs/read_ops.rs
+
+use crate::api_client::{get_files_from_server,get_file_content_from_server};
+use fuser::{FileAttr, FileType, ReplyDirectory, ReplyEntry, Request, ReplyData, ReplyOpen};
 use libc::ENOENT;
 use std::ffi::OsStr;
-use std::time::UNIX_EPOCH;
-use crate::api_client::{get_file_content_from_server, get_files_from_server};
-
-use super::{RemoteFS, ROOT_DIR_ATTR, TTL};
+use std::time::{Duration, UNIX_EPOCH};
+use super::{RemoteFS, TTL};
 
 pub fn lookup(fs: &mut RemoteFS, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
     let parent_path = match fs.inode_to_path.get(&parent) {
         Some(p) => p.clone(),
-        None => {
-            reply.error(ENOENT);
-            return;
-        }
+        None => { reply.error(ENOENT); return; }
     };
 
-    let name_str = name.to_str().unwrap_or("");
-    println!("🔍 LOOKUP: parent={}, name='{}'", parent, name_str);
-    let full_path = if parent_path.is_empty() {
-        name_str.to_string()
-    } else {
-        format!("{}/{}", parent_path, name_str)
+
+    let entry_list = match fs.runtime.block_on(get_files_from_server(&fs.client, &parent_path)) {
+        Ok(list) => list,
+        Err(_) => { reply.error(ENOENT); return; }
     };
 
-    if let Some(&inode) = fs.path_to_inode.get(&full_path) {
-        let kind = fs.inode_to_type.get(&inode).copied().unwrap_or(FileType::RegularFile);
-        let attrs = FileAttr {
-            ino: inode, size: 1024, blocks: 1, kind,
-            perm: if kind == FileType::Directory { 0o755 } else { 0o644 },
-            nlink: 1, uid: 501, gid: 20, atime: UNIX_EPOCH, mtime: UNIX_EPOCH,
-            ctime: UNIX_EPOCH, crtime: UNIX_EPOCH, rdev: 0, flags: 0, blksize: 5120,
-        };
-        reply.entry(&TTL, &attrs, 0);
-        return;
-    }
+    let name_str = name.to_str().unwrap();
+    if let Some(entry) = entry_list.iter().find(|e| e.name == name_str) {
+        let full_path = if parent_path.is_empty() { name_str.to_string() } else { format!("{}/{}", parent_path, name_str) };
 
-    let file_list = fs.runtime.block_on(async {
-        get_files_from_server(&fs.client, &parent_path).await
-    });
-
-    if let Ok(files) = file_list {
-        if let Some(found_file) = files.iter().find(|f| f.trim_end_matches('/') == name_str) {
-            let inode = fs.next_inode;
+        let inode = *fs.path_to_inode.entry(full_path.clone()).or_insert_with_key(|_key| {
+            let new_ino = fs.next_inode;
             fs.next_inode += 1;
+            fs.inode_to_path.insert(new_ino, full_path);
+            new_ino
+        });
 
-            let is_dir = found_file.ends_with('/');
-            let kind = if is_dir { FileType::Directory } else { FileType::RegularFile };
-            fs.inode_to_path.insert(inode, full_path.clone());
-            fs.path_to_inode.insert(full_path, inode);
-            fs.inode_to_type.insert(inode, kind);
-
-            let attrs = FileAttr {
-                ino: inode, size: 1024, blocks: 1, kind,
-                perm: if kind == FileType::Directory { 0o755 } else { 0o644 },
-                nlink: 1, uid: 501, gid: 20, atime: UNIX_EPOCH, mtime: UNIX_EPOCH,
-                ctime: UNIX_EPOCH, crtime: UNIX_EPOCH, rdev: 0, flags: 0, blksize: 5120,
-            };
-            reply.entry(&TTL, &attrs, 0);
-        } else {
-            reply.error(ENOENT);
-        }
+        let kind = if entry.kind == "directory" { FileType::Directory } else { FileType::RegularFile };
+        let perm = u16::from_str_radix(&entry.perm, 8).unwrap_or(if kind == FileType::Directory { 0o755 } else { 0o644 });
+        let attrs = FileAttr {
+            ino: inode, size: entry.size, blocks: (entry.size + 511) / 512,
+            atime: UNIX_EPOCH + Duration::from_secs(entry.mtime as u64),
+            mtime: UNIX_EPOCH + Duration::from_secs(entry.mtime as u64),
+            ctime: UNIX_EPOCH + Duration::from_secs(entry.mtime as u64),
+            crtime: UNIX_EPOCH, kind, perm,
+            nlink: if kind == FileType::Directory { 2 } else { 1 },
+            uid: 501, gid: 20, rdev: 0, flags: 0, blksize: 5120,
+        };
+        fs.inode_to_attr.insert(inode, attrs.clone());
+        fs.inode_to_type.insert(inode, kind);
+        reply.entry(&TTL, &attrs, 0);
     } else {
         reply.error(ENOENT);
     }
@@ -68,58 +52,78 @@ pub fn lookup(fs: &mut RemoteFS, _req: &Request, parent: u64, name: &OsStr, repl
 pub fn readdir(fs: &mut RemoteFS, _req: &Request, ino: u64, _fh: u64, offset: i64, mut reply: ReplyDirectory) {
     let dir_path = match fs.inode_to_path.get(&ino) {
         Some(p) => p.clone(),
-        None => {
-            reply.error(ENOENT);
-            return;
-        }
+        None => { reply.error(ENOENT); return; }
     };
 
-    let file_list = fs.runtime.block_on(async {
-        get_files_from_server(&fs.client, &dir_path).await
-    });
-
-    let mut entries = vec![
-        (ino, FileType::Directory, ".".to_string()),
-        (1, FileType::Directory, "..".to_string()),
-    ];
-
-    if let Ok(files) = file_list {
-        for file_name in files {
-            let is_dir = file_name.ends_with('/');
-            let clean_name = file_name.trim_end_matches('/').to_string();
-            let full_path = if dir_path.is_empty() {
-                clean_name.clone()
-            } else {
-                format!("{}/{}", dir_path, clean_name)
-            };
-            let inode = *fs.path_to_inode.entry(full_path.clone()).or_insert_with(|| {
-                let new_ino = fs.next_inode;
-                fs.next_inode += 1;
-                fs.inode_to_path.insert(new_ino, full_path);
-                new_ino
-            });
-            let kind = if is_dir { FileType::Directory } else { FileType::RegularFile };
-            fs.inode_to_type.insert(inode, kind);
-            entries.push((inode, kind, clean_name));
-        }
+    let mut entries_to_add: Vec<(u64, FileType, String)> = vec![];
+    if offset == 0 {
+        entries_to_add.push((ino, FileType::Directory, ".".to_string()));
+    }
+    if offset <= 1 {
+        entries_to_add.push((1, FileType::Directory, "..".to_string()));
     }
 
-    for (i, entry) in entries.into_iter().enumerate().skip(offset as usize) {
-        if reply.add(entry.0, (i + 1) as i64, entry.1, &entry.2) {
+    let entry_list = match fs.runtime.block_on(get_files_from_server(&fs.client, &dir_path)) {
+        Ok(list) => list,
+        Err(_) => { reply.ok(); return; }
+    };
+
+    for entry in entry_list {
+        let full_path = if dir_path.is_empty() { entry.name.clone() } else { format!("{}/{}", dir_path, &entry.name) };
+        let inode = *fs.path_to_inode.entry(full_path.clone()).or_insert_with_key(|_key| {
+            let new_ino = fs.next_inode;
+            fs.next_inode += 1;
+            fs.inode_to_path.insert(new_ino, full_path);
+            new_ino
+        });
+
+        let kind = if entry.kind == "directory" { FileType::Directory } else { FileType::RegularFile };
+        let perm = u16::from_str_radix(&entry.perm, 8).unwrap_or(if kind == FileType::Directory { 0o755 } else { 0o644 });
+        let attrs = FileAttr {
+            ino, size: entry.size, blocks: (entry.size + 511) / 512,
+            atime: UNIX_EPOCH + Duration::from_secs(entry.mtime as u64),
+            mtime: UNIX_EPOCH + Duration::from_secs(entry.mtime as u64),
+            ctime: UNIX_EPOCH + Duration::from_secs(entry.mtime as u64),
+            crtime: UNIX_EPOCH, kind, perm,
+            nlink: if kind == FileType::Directory { 2 } else { 1 },
+            uid: 501, gid: 20, rdev: 0, flags: 0, blksize: 5120,
+        };
+        fs.inode_to_attr.insert(inode, attrs);
+        fs.inode_to_type.insert(inode, kind);
+        entries_to_add.push((inode, kind, entry.name));
+    }
+
+    for (i, (ino_to_add, kind_to_add, name_to_add)) in entries_to_add.into_iter().enumerate().skip(offset as usize) {
+        if reply.add(ino_to_add, (i + 1) as i64, kind_to_add, &name_to_add) {
             break;
         }
     }
+
     reply.ok();
 }
 
 pub fn read(fs: &mut RemoteFS, _req: &Request<'_>, ino: u64, _fh: u64, offset: i64, size: u32, _flags: i32, _lock_owner: Option<u64>, reply: ReplyData) {
     if let Some(file_path) = fs.inode_to_path.get(&ino) {
-        let content = fs.runtime.block_on(async {
+
+        let content_result = fs.runtime.block_on(async {
             get_file_content_from_server(&fs.client, file_path).await
-        }).unwrap_or_default();
-        let start = offset as usize;
-        let end = std::cmp::min(start + size as usize, content.len());
-        reply.data(&content.as_bytes()[start..end]);
+        });
+
+        match content_result {
+            Ok(content) => {
+                let content_bytes = content.as_bytes();
+                let start = offset as usize;
+                if start >= content_bytes.len() {
+                    reply.data(&[]);
+                    return;
+                }
+                let end = std::cmp::min(start + size as usize, content_bytes.len());
+                reply.data(&content_bytes[start..end]);
+            },
+            Err(_) => {
+                reply.error(ENOENT);
+            }
+        }
     } else {
         reply.error(ENOENT);
     }

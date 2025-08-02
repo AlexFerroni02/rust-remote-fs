@@ -1,1 +1,1 @@
-Ciao, mondo, dal client FUSE!
+c

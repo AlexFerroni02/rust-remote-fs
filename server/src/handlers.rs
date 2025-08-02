@@ -4,8 +4,18 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use std::time::UNIX_EPOCH;
+use std::os::unix::fs::PermissionsExt;
 use std::fs;
-
+use serde::Serialize;
+#[derive(Serialize)]
+pub struct RemoteEntry {
+    name: String,
+    kind: String,
+    size: u64,
+    mtime: i64,
+    perm: String,
+}
 // Lettura file
 pub async fn get_file(Path(path): Path<String>) -> Result<String, StatusCode> {
     let file_path = format!("data/{}", path);
@@ -29,61 +39,45 @@ pub async fn put_file(Path(path): Path<String>, body: Body) -> StatusCode {
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }
-pub async fn list_root() -> Result<Json<Vec<String>>, StatusCode> {
-    println!("chiamata a list_root");
-    let mut entries = Vec::new();
-    match fs::read_dir("data") {
-        Ok(read_dir) => {
-            for entry in read_dir {
-                if let Ok(entry) = entry {
-                    let file_name = entry.file_name().into_string().unwrap_or_default();
-                    if entry.path().is_dir() {
-                        entries.push(format!("{}/", file_name));
-                    } else {
-                        entries.push(file_name);
-                    }
-                }
-            }
-            println!("entries trovate: {:?}", entries);
-            Ok(Json(entries))
-        }
-        Err(e) => {
-            println!("errore lettura directory: {}", e);
-            Err(StatusCode::NOT_FOUND)
-        }
-    }
-}
-// Lista directory (versione di test)
-pub async fn list_dir(path: Option<Path<String>>) -> Result<Json<Vec<String>>, StatusCode> {
-    let path = match &path {
-        Some(Path(p)) => p.trim_matches('/'),
-        None => "",
-    };
-   
-    let dir_path = if path.is_empty() {
-        "data".to_string()
-    } else {
-        format!("data/{}", path)
-    };
+pub async fn list_directory_contents(path: Option<Path<String>>) -> Result<Json<Vec<RemoteEntry>>, StatusCode> {
+    // Determina il percorso relativo
+    let relative_path = path.map_or("".to_string(), |Path(p)| p);
+    let full_path = format!("data/{}", relative_path);
 
     let mut entries = Vec::new();
-    match fs::read_dir(&dir_path) {
-        Ok(read_dir) => {
-            for entry in read_dir {
-                if let Ok(entry) = entry {
-                    let file_name = entry.file_name().into_string().unwrap_or_default();
-                    // Se vuoi distinguere le directory, puoi aggiungere uno slash finale:
-                    if entry.path().is_dir() {
-                        entries.push(format!("{}/", file_name));
-                    } else {
-                        entries.push(file_name);
-                    }
-                }
+    let read_dir = match fs::read_dir(&full_path) {
+        Ok(rd) => rd,
+        Err(_) => return Err(StatusCode::NOT_FOUND),
+    };
+
+    for entry_result in read_dir {
+        if let Ok(entry) = entry_result {
+            if let Ok(metadata) = entry.metadata() {
+                // Estrae i metadati reali dal file
+                let kind = if metadata.is_dir() { "directory".to_string() } else { "file".to_string() };
+
+                let mtime = metadata.modified()
+                    .unwrap_or(UNIX_EPOCH)
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs() as i64;
+
+                // Converte i permessi in formato ottale (es. "755")
+                let perm = format!("{:o}", metadata.permissions().mode() & 0o777);
+
+                // Crea l'oggetto da inviare
+                entries.push(RemoteEntry {
+                    name: entry.file_name().to_string_lossy().to_string(),
+                    kind,
+                    size: metadata.len(),
+                    mtime,
+                    perm,
+                });
             }
-            Ok(Json(entries))
         }
-        Err(_) => Err(StatusCode::NOT_FOUND),
     }
+
+    Ok(Json(entries))
 }
 
 // Creazione directory
