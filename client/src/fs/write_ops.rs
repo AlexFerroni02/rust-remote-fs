@@ -1,8 +1,8 @@
 use fuser::{FileAttr, FileType, ReplyCreate, ReplyWrite, ReplyEntry, Request, ReplyAttr, ReplyEmpty};
-use libc::{ENOENT, EIO};
+use libc::{ENOENT, EIO,ENOTEMPTY};
 use std::ffi::OsStr;
 use std::time::UNIX_EPOCH;
-use crate::api_client::{put_file_content_to_server, get_file_content_from_server};
+use crate::api_client::{put_file_content_to_server, get_file_content_from_server, get_files_from_server};
 use super::{RemoteFS, TTL};
 
 pub fn write(fs: &mut RemoteFS, _req: &Request<'_>, ino: u64, _fh: u64, offset: i64, data: &[u8], _write_flags: u32, _flags: i32, _lock_owner: Option<u64>, reply: ReplyWrite) {
@@ -137,6 +137,10 @@ pub fn mkdir(fs: &mut RemoteFS, _req: &Request<'_>, parent: u64, name: &OsStr, m
     reply.entry(&TTL, &attrs, 0);
 }
 
+pub fn rmdir(fs: &mut RemoteFS, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+    unlink(fs, req, parent, name, reply);
+}
+
 pub fn unlink(fs: &mut RemoteFS, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
     let parent_path = match fs.inode_to_path.get(&parent) {
         Some(p) => p.clone(),
@@ -166,10 +170,6 @@ pub fn unlink(fs: &mut RemoteFS, _req: &Request<'_>, parent: u64, name: &OsStr, 
     }
     fs.path_to_inode.remove(&full_path);
     reply.ok();
-}
-
-pub fn rmdir(fs: &mut RemoteFS, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
-    unlink(fs, req, parent, name, reply);
 }
 pub fn release(_fs: &mut RemoteFS, _req: &Request<'_>, _ino: u64, _fh: u64, _flags: i32, _lock_owner: Option<u64>, _flush: bool, reply: ReplyEmpty) {
     reply.ok();

@@ -1,6 +1,7 @@
 #!/bin/bash
 set -o pipefail
 
+# Assicurati che MOUNT_POINT sia impostato
 if [ -z "$MOUNT_POINT" ]; then
     echo "Errore: la variabile d'ambiente MOUNT_POINT non è impostata."
     exit 1
@@ -37,30 +38,6 @@ test_command() {
   fi
 }
 
-test_command_fails() {
-  local description=$1
-  local command=$2
-  echo -n "  - Test (atteso fallimento): $description..."
-  local stderr_file=$(mktemp)
-  local output
-  output=$(eval "$command" 2> "$stderr_file")
-  local exit_code=$?
-  local error_output=$(cat "$stderr_file")
-  rm "$stderr_file"
-  if [ "$exit_code" -ne 0 ]; then
-    echo -e "\e[32m PASS (fallito come previsto)\e[0m"
-  else
-    echo -e "\e[31m FAIL (ha avuto successo)\e[0m"
-    echo "    ----------------------------------------------------"
-    echo "    REASON: Il comando doveva fallire ma ha avuto successo (exit code 0)."
-    echo "    COMMAND: $command"
-    [ -n "$output" ] && echo "    STDOUT:" && echo "$output" | sed 's/^/    | /'
-    [ -n "$error_output" ] && echo "    STDERR:" && echo "$error_output" | sed 's/^/    | /'
-    echo "    ----------------------------------------------------"
-    FAILED_TESTS=$((FAILED_TESTS + 1))
-  fi
-}
-
 # --- Esecuzione dei Test ---
 echo "--- Avvio dei Test ---"
 
@@ -74,20 +51,20 @@ test_command "Verificare che 'ls' non mostri il file nascosto" "! ls | grep -q '
 test_command "Verificare che 'ls -a' mostri il file nascosto" "ls -a | grep -q '.file_nascosto'"
 test_command "Rimuovere i file speciali" "rm 'file con spazi.txt' .file_nascosto"
 
-# 2. Testare Funzionalità Mancanti
-echo "Sezione 2: Test su funzionalità mancanti (attese fallimenti)"
+# 2. Test Funzionalità Implementate (devono avere successo)
+echo "Sezione 2: Test su funzionalità che ora dovrebbero avere successo"
 # Questo file viene creato e rimosso esclusivamente per questi test
 echo -n "  - Preparazione: Creare un file per i test di rename/chmod..."
 touch file_per_test_avanzati.txt || {
-  echo -e "\e[31m FALLITA\e[0m. Impossibile creare il file di test. Salto i test di funzionalità mancanti."
+  echo -e "\e[31m FALLITA\e[0m. Impossibile creare il file di test. Salto i test di funzionalità avanzate."
   FAILED_TESTS=$((FAILED_TESTS + 1))
 }
 
 if [ -f "file_per_test_avanzati.txt" ]; then
-  test_command_fails "Rinominare un file ('rename' non implementato)" "mv file_per_test_avanzati.txt file_rinominato.txt"
-  test_command_fails "Modificare i permessi ('setattr' non implementato)" "chmod 777 file_per_test_avanzati.txt"
-  test_command_fails "Modificare la dimensione ('setattr' non implementato)" "truncate -s 100 file_per_test_avanzati.txt"
-  test_command "Pulizia: Rimuovere il file di test" "rm file_per_test_avanzati.txt"
+  test_command "Rinominare un file ('rename' implementato)" "mv file_per_test_avanzati.txt file_rinominato.txt && [ -f file_rinominato.txt ] && ! [ -f file_per_test_avanzati.txt ]"
+  test_command "Modificare i permessi ('setattr' implementato)" "chmod 777 file_rinominato.txt && [ \"\$(stat -c '%a' file_rinominato.txt)\" = '777' ]"
+  test_command "Modificare la dimensione ('setattr' implementato)" "truncate -s 100 file_rinominato.txt && [ \"\$(stat -c '%s' file_rinominato.txt)\" = '100' ]"
+  test_command "Pulizia: Rimuovere il file di test rinominato" "rm file_rinominato.txt"
 fi
 
 # 3. Test di Carico Leggero
