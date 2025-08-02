@@ -81,4 +81,11 @@ impl Filesystem for RemoteFS {
     fn rmdir(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
         write_ops::rmdir(self, req, parent, name, reply);
     }
+
+    fn release(&mut self, req: &Request<'_>, ino: u64, fh: u64, flags: i32, lock_owner: Option<u64>, flush: bool, reply: ReplyEmpty) {
+        write_ops::release(self, req, ino, fh, flags, lock_owner, flush, reply);
+    }
+    fn flush(&mut self, req: &Request<'_>, ino: u64, fh: u64, lock_owner: u64, reply: ReplyEmpty) {
+        write_ops::flush(self, req, ino, fh, lock_owner, reply);
+    }
 }

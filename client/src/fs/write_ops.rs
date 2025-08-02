@@ -94,6 +94,9 @@ pub fn create(fs: &mut RemoteFS, _req: &Request<'_>, parent: u64, name: &OsStr, 
         ctime: UNIX_EPOCH, crtime: UNIX_EPOCH, kind: FileType::RegularFile,
         perm: mode as u16, nlink: 1, uid: 501, gid: 20, rdev: 0, flags: 0, blksize: 5120,
     };
+
+    fs.inode_to_attr.insert(inode, attrs.clone());
+
     reply.created(&TTL, &attrs, 0, inode, 0);
 }
 
@@ -167,4 +170,11 @@ pub fn unlink(fs: &mut RemoteFS, _req: &Request<'_>, parent: u64, name: &OsStr, 
 
 pub fn rmdir(fs: &mut RemoteFS, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
     unlink(fs, req, parent, name, reply);
+}
+pub fn release(_fs: &mut RemoteFS, _req: &Request<'_>, _ino: u64, _fh: u64, _flags: i32, _lock_owner: Option<u64>, _flush: bool, reply: ReplyEmpty) {
+    reply.ok();
+}
+
+pub fn flush(_fs: &mut RemoteFS, _req: &Request<'_>, _ino: u64, _fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
+    reply.ok();
 }
