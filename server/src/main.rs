@@ -19,10 +19,12 @@ async fn main() {
     // Ora il router è molto più leggibile
     let app = Router::new()
         .route("/health", get(|| async { "OK" }))
-        .route("/files", get(list_directory_contents))
-        .route("/files/*path", get(list_directory_contents).delete(delete_file))
-        .route("/file/*path", get(get_file).put(put_file).delete(delete_file))
-        .route("/mkdir/*path", post(mkdir));
+        .route("/list", get(list_directory_contents))
+        .route("/list/*path", get(list_directory_contents))
+        .route("/mkdir/*path", post(mkdir))
+        .route("/files/*path", get(get_file).put(put_file).delete(delete_file),
+        );
+
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
     println!("listening on {}", addr);
