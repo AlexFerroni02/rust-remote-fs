@@ -2,21 +2,64 @@ use fuser::{FileAttr, FileType, ReplyCreate, ReplyWrite, ReplyEntry, Request, Re
 use libc::{ENOENT, EIO};
 use std::ffi::OsStr;
 use std::time::UNIX_EPOCH;
-use crate::api_client::put_file_content_to_server;
+use crate::api_client::{put_file_content_to_server, get_file_content_from_server};
 use super::{RemoteFS, TTL};
 
-pub fn write(fs: &mut RemoteFS, _req: &Request<'_>, ino: u64, _fh: u64, _offset: i64, data: &[u8], _write_flags: u32, _flags: i32, _lock_owner: Option<u64>, reply: ReplyWrite) {
-    if let Some(file_path) = fs.inode_to_path.get(&ino) {
-        let content = String::from_utf8_lossy(data).to_string();
-        let res = fs.runtime.block_on(async {
-            put_file_content_to_server(&fs.client, file_path, &content).await
-        });
-        match res {
-            Ok(_) => reply.written(data.len() as u32),
-            Err(_) => reply.error(EIO),
+pub fn write(fs: &mut RemoteFS, _req: &Request<'_>, ino: u64, _fh: u64, offset: i64, data: &[u8], _write_flags: u32, _flags: i32, _lock_owner: Option<u64>, reply: ReplyWrite) {
+    let file_path = match fs.inode_to_path.get(&ino) {
+        Some(p) => p.clone(),
+        None => {
+            reply.error(ENOENT);
+            return;
         }
-    } else {
-        reply.error(ENOENT);
+    };
+
+    let old_content_result = fs.runtime.block_on(async {
+        get_file_content_from_server(&fs.client, &file_path).await
+    });
+
+    let old_content = match old_content_result {
+        Ok(c) => c,
+        Err(_) if offset == 0 => "".to_string(),
+        Err(_) => {
+            reply.error(EIO);
+            return;
+        }
+    };
+
+    let old_bytes = old_content.as_bytes();
+    let offset = offset as usize;
+
+    let final_capacity = std::cmp::max(offset + data.len(), old_bytes.len());
+    let mut new_content = Vec::with_capacity(final_capacity);
+
+    let prefix_len = std::cmp::min(offset, old_bytes.len());
+    new_content.extend_from_slice(&old_bytes[..prefix_len]);
+
+    if new_content.len() < offset {
+        new_content.resize(offset, 0);
+    }
+
+    new_content.extend_from_slice(data);
+
+
+    let end_of_write = offset + data.len();
+    if offset > 0 && old_bytes.len() > end_of_write {
+        new_content.extend_from_slice(&old_bytes[end_of_write..]);
+    }
+
+    match String::from_utf8(new_content) {
+        Ok(content_str) => {
+            let res = fs.runtime.block_on(async {
+                put_file_content_to_server(&fs.client, &file_path, &content_str).await
+            });
+
+            match res {
+                Ok(_) => reply.written(data.len() as u32),
+                Err(_) => reply.error(EIO),
+            }
+        },
+        Err(_) => reply.error(EIO),
     }
 }
 
