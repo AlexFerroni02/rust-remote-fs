@@ -42,7 +42,7 @@ cleanup() {
   rm -f "$SERVER_LOG" "$CLIENT_LOG"
 
   # AGGIUNGI QUESTA RIGA: Rimuove la cartella 'data' creata alla radice
-  rm -rf "$PROJECT_DATA_DIR"
+  # rm -rf "$PROJECT_DATA_DIR"
 
   info "Pulizia completata."
 }

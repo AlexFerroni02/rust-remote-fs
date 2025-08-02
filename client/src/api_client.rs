@@ -36,4 +36,3 @@ pub async fn put_file_content_to_server(client: &Client, path: &str, content: &s
         .error_for_status()?;
     Ok(())
 }
-

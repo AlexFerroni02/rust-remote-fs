@@ -244,10 +244,6 @@ per eliminare provare rmdir nome_cartella
  
 # DA AGGIUNGERE
 
-- Attualmente, la seconda operazione `echo "Line 2" >> test_file.txt` sovrascrive il contenuto invece di aggiungere il testo in coda. Questo comportamento va corretto modificando la funzione `write` per gestire correttamente l'operazione di append, utilizzando il parametro offset.
-
-- È necessario implementare attributi realistici per i file al momento della loro creazione, in modo che mostrino informazioni corrette come dimensione effettiva e timestamp appropriati, invece dei valori predefiniti attualmente utilizzati.
-
 - Manca la funzionalità di rinominazione dei file e delle directory: è necessario implementare la funzione `rename` nel filesystem per supportare il comando `mv`.
 
 - Le mappe attualmente create potrebbero essere ottimizzate, riducendone il numero e memorizzando direttamente tutti gli attributi di un file o di una directory come valore, invece di mantenere solo il tipo in mappe separate.

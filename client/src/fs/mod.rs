@@ -88,4 +88,8 @@ impl Filesystem for RemoteFS {
     fn flush(&mut self, req: &Request<'_>, ino: u64, fh: u64, lock_owner: u64, reply: ReplyEmpty) {
         write_ops::flush(self, req, ino, fh, lock_owner, reply);
     }
+
+    fn rename(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr, flags: u32, reply: ReplyEmpty) {
+        write_ops::rename(self, req, parent, name, newparent, newname, flags, reply);
+    }
 }
