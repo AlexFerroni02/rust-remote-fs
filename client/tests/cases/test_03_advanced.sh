@@ -45,6 +45,7 @@ echo "--- Avvio dei Test ---"
 echo "Sezione 1: Test su nomi di file e directory particolari"
 test_command "Creare un file con spazi nel nome" "touch 'file con spazi.txt' && [ -f 'file con spazi.txt' ]"
 test_command "Scrivere in un file con spazi nel nome" "echo 'test' > 'file con spazi.txt'"
+sleep 1
 test_command "Verificare il contenuto del file" "[ \"\$(cat 'file con spazi.txt')\" = 'test' ]"
 test_command "Creare un file nascosto (con il punto)" "touch .file_nascosto && [ -f .file_nascosto ]"
 test_command "Verificare che 'ls' non mostri il file nascosto" "! ls | grep -q '.file_nascosto'"
@@ -72,6 +73,7 @@ echo "Sezione 3: Test di carico leggero"
 test_command "Creare 10 file in un ciclo" "for i in {1..10}; do touch file_ciclo_\$i.txt; done && [ \$(ls | grep file_ciclo_ | wc -l) -eq 10 ]"
 test_command "Rimuovere i 10 file creati" "rm file_ciclo_*.txt"
 test_command "Creare una directory e un file al suo interno" "mkdir 'dir_test' && touch 'dir_test/file_interno.txt' && [ -f 'dir_test/file_interno.txt' ]"
+sleep 1
 test_command "Rimuovere ricorsivamente la directory" "rm -r 'dir_test'"
 
 # --- Esito Finale ---
