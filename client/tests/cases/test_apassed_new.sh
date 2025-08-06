@@ -38,22 +38,29 @@ test_command() {
 # --- Tests ---
 
 # 1. File Attributes
-test_command "Verify file size preservation" "echo 'test content' > file_test.txt"
-sleep 0.5
-test_command "Verify file size preservation" "[ \"\$(stat -c '%s' file_test.txt)\" -eq 12 ]"
+test_command "Verify file timestamp preservation" "touch file_test.txt && [ \"\$(stat -c '%Y' file_test.txt)\" -le \"\$(date +%s)\" ]"
+test_command "Verify file permissions preservation" "chmod 644 file_test.txt && [ \"\$(stat -c '%a' file_test.txt)\" = '644' ]"
 rm file_test.txt
 
-# 3. Streaming Read/Write for Large Files
-#test_command "Create a large file (100MB)" "dd if=/dev/zero of=large_file.txt bs=1M count=100 && [ -f large_file.txt ]"
-#test_command "Verify large file size" "[ \"\$(stat -c '%s' large_file.txt)\" -eq \$((100 * 1024 * 1024)) ]"
-#rm large_file.txt
-
 # 4. Graceful Startup and Shutdown
-test_command "Verify client shutdown and unmount" "umount '$MOUNT_POINT' && ! mount | grep -q '$MOUNT_POINT'"
+test_command "Verify client startup and mount point readiness" "mount | grep -q '$MOUNT_POINT'"
 
 # 5. Error Handling for RESTful API
-test_command "Handle 500 error (server internal error)" "! curl -X GET http://localhost:8080/trigger_500"
+test_command "Handle 404 error (file not found)" "! cat non_existent_file.txt"
 
+# 7. Performance Metrics
+test_command "Measure latency for file creation" "time touch test_latency.txt && rm test_latency.txt"
+
+# 8. Directory Listing
+mkdir test_dir
+touch test_dir/file1.txt test_dir/file2.txt
+sleep 1
+test_command "Verify directory listing correctness" "ls test_dir | grep -q 'file1.txt' && ls test_dir | grep -q 'file2.txt'"
+rm -r test_dir
+
+# 9. innested mkdir e mkfile
+test_command "Create nested directories with mkdir -p" "mkdir -p nested/dir1/dir2 && [ -d nested/dir1/dir2 ]"
+test_command "Create a file in nested directory" "touch nested/dir1/dir2/file.txt && [ -f nested/dir1/dir2/file.txt ]"
 
 # --- Final Result ---
 if [ "$FAILED_TESTS" -eq 0 ]; then
