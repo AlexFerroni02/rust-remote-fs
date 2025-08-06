@@ -38,7 +38,7 @@ cleanup() {
   # Rimuovi la directory di mount e i log
   rm -rf "$MOUNT_POINT"
   rm -f "$SERVER_LOG" "$CLIENT_LOG"
-
+  rm -rf "$SERVER_PROJECT_DIR/data/"*
   info "Pulizia completata."
 }
 trap cleanup EXIT
@@ -49,7 +49,6 @@ info "Compilazione di server e client..."
 cargo build --manifest-path="$SERVER_PROJECT_DIR/Cargo.toml" --quiet
 cargo build --manifest-path="$CLIENT_PROJECT_DIR/Cargo.toml" --quiet
 
-rm -rf "$SERVER_PROJECT_DIR/data/"*
 mkdir -p "$MOUNT_POINT"
 
 info "Avvio del server..."
