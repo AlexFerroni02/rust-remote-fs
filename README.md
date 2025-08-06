@@ -338,8 +338,18 @@ chmod +x client/tests/run-tests.sh client/tests/cases/*.sh
 ```
 
 refinire cache system
-mkdir prova/prova1 con prova non esistente
 chmod opzionale?
-rifinire test (data fuori ) e problema con git
+rifinire test problema con git
 informarsi su grandi file? che fare?
+TODO verify stat (errore in birth, time, acces e uid?)
+➜  p stat file_test.txt
+File: file_test.txt
+Size: 5               Blocks: 1          IO Block: 4096   regular file
+Device: 59h/89d Inode: 2           Links: 1
+Access: (0644/-rw-r--r--)  Uid: (  501/ UNKNOWN)   Gid: (   20/ dialout)
+Access: 2025-08-06 22:37:30.000000000 +0200
+Modify: 2025-08-06 22:37:30.000000000 +0200
+Change: 2025-08-06 22:37:30.000000000 +0200
+Birth: -
+TODO verify stats
 

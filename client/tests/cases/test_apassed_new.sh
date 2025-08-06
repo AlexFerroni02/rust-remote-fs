@@ -39,7 +39,6 @@ test_command() {
 
 # 1. File Attributes
 test_command "Verify file timestamp preservation" "touch file_test.txt && [ \"\$(stat -c '%Y' file_test.txt)\" -le \"\$(date +%s)\" ]"
-test_command "Verify file permissions preservation" "chmod 644 file_test.txt && [ \"\$(stat -c '%a' file_test.txt)\" = '644' ]"
 rm file_test.txt
 
 # 4. Graceful Startup and Shutdown

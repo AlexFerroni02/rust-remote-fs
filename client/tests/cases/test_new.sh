@@ -41,6 +41,7 @@ test_command() {
 test_command "Verify file size preservation" "echo 'test content' > file_test.txt"
 sleep 0.5
 test_command "Verify file size preservation" "[ \"\$(stat -c '%s' file_test.txt)\" -eq 12 ]"
+test_command "Verify file permissions preservation" "chmod 666 file_test.txt && [ \"\$(stat -c '%a' file_test.txt)\" = '666' ]"
 rm file_test.txt
 
 # 3. Streaming Read/Write for Large Files
