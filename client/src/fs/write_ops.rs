@@ -138,6 +138,35 @@ pub fn mkdir(fs: &mut RemoteFS, _req: &Request<'_>, parent: u64, name: &OsStr, m
 }
 
 pub fn rmdir(fs: &mut RemoteFS, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+    let parent_path = match fs.inode_to_path.get(&parent) {
+        Some(p) => p.clone(),
+        None => {
+            reply.error(ENOENT);
+            return;
+        }
+    };
+    let dirname = name.to_str().unwrap();
+    let full_path = if parent_path.is_empty() {
+        dirname.to_string()
+    } else {
+        format!("{}/{}", parent_path, dirname)
+    };
+
+    // Check if the directory is empty
+    let entry_list = match fs.runtime.block_on(get_files_from_server(&fs.client, &full_path)) {
+        Ok(list) => list,
+        Err(_) => {
+            reply.error(EIO);
+            return;
+        }
+    };
+
+    if !entry_list.is_empty() {
+        reply.error(ENOTEMPTY); // Return error if the directory is not empty
+        return;
+    }
+
+    // Proceed with unlinking the directory
     unlink(fs, req, parent, name, reply);
 }
 
@@ -156,19 +185,36 @@ pub fn unlink(fs: &mut RemoteFS, _req: &Request<'_>, parent: u64, name: &OsStr, 
         format!("{}/{}", parent_path, filename)
     };
 
-    if fs.runtime.block_on(async {
-        let url = format!("http://localhost:8080/files/{}", full_path);
-        fs.client.delete(&url).send().await
-    }).is_err() {
-        reply.error(EIO);
-        return;
-    }
+    // Check if the path exists and determine its type
+    let inode = match fs.path_to_inode.get(&full_path) {
+        Some(&ino) => ino,
+        None => {
+            reply.error(ENOENT);
+            return;
+        }
+    };
 
-    if let Some(&inode) = fs.path_to_inode.get(&full_path) {
-        fs.inode_to_path.remove(&inode);
-        fs.inode_to_type.remove(&inode);
+    let is_dir = fs.inode_to_type.get(&inode).copied() == Some(FileType::Directory);
+
+    if is_dir {
+        // Perform recursive deletion for directories
+        if let Err(err) = recursive_delete(fs, &full_path) {
+            reply.error(err);
+            return;
+        }
+    } else {
+        // Delete file directly
+        let url = format!("http://localhost:8080/files/{}", full_path);
+        if fs.runtime.block_on(fs.client.delete(&url).send()).is_err() {
+            reply.error(EIO);
+            return;
+        }
     }
+    // Remove inode mappings
     fs.path_to_inode.remove(&full_path);
+    fs.inode_to_path.remove(&inode);
+    fs.inode_to_type.remove(&inode);
+
     reply.ok();
 }
 pub fn release(_fs: &mut RemoteFS, _req: &Request<'_>, _ino: u64, _fh: u64, _flags: i32, _lock_owner: Option<u64>, _flush: bool, reply: ReplyEmpty) {
@@ -286,4 +332,33 @@ pub fn rename(fs: &mut RemoteFS, _req: &Request<'_>, parent: u64, name: &OsStr, 
     }
 
     reply.ok();
+}
+pub fn recursive_delete(fs: &mut RemoteFS, path: &str) -> Result<(), libc::c_int> {
+    // Get the list of entries in the directory
+    let entry_list = match fs.runtime.block_on(get_files_from_server(&fs.client, path)) {
+        Ok(list) => list,
+        Err(_) => return Err(libc::EIO),
+    };
+
+    for entry in entry_list {
+        let full_path = format!("{}/{}", path, entry.name);
+        if entry.kind == "directory" {
+            // Recursively delete subdirectory
+            recursive_delete(fs, &full_path)?;
+        } else {
+            // Delete file
+            let url = format!("http://localhost:8080/files/{}", full_path);
+            if fs.runtime.block_on(fs.client.delete(&url).send()).is_err() {
+                return Err(libc::EIO);
+            }
+        }
+    }
+
+    // Delete the directory itself
+    let url = format!("http://localhost:8080/files/{}", path);
+    if fs.runtime.block_on(fs.client.delete(&url).send()).is_err() {
+        return Err(libc::EIO);
+    }
+
+    Ok(())
 }

@@ -59,11 +59,11 @@ test_command "Creare un file da spostare" "echo 'contenuto da spostare' > file_d
 test_command "Spostare il file dentro 'dir1/subdir'" "mv file_da_spostare.txt dir1/subdir/"
 test_command "Verificare che il file sia nella nuova posizione" "[ -f dir1/subdir/file_da_spostare.txt ]"
 test_command "Verificare che il file non sia più nella vecchia posizione" "[ ! -f file_da_spostare.txt ]"
-
 # 3. Rimozione e Casi Limite
 test_command "Rimuovere una directory vuota con 'rmdir'" "rmdir dir1/subdir/subsubdir"
 test_command_fails "Fallire nel rimuovere una directory non vuota con 'rmdir'" "rmdir dir1/subdir"
 test_command_fails "Fallire nel rimuovere un file con 'rmdir'" "rmdir dir1/subdir/file_da_spostare.txt"
+sleep 1
 test_command "Rimuovere una directory e il suo contenuto con 'rm -r'" "rm -r dir1"
 test_command "Verificare che la directory non esista più" "[ ! -d dir1 ]"
 
