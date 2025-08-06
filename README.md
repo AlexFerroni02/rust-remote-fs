@@ -336,3 +336,10 @@ chmod +x client/tests/run-tests.sh client/tests/cases/*.sh
 ./client/tests/run-tests.sh
 ./client/tests/run-tests.sh | tee >(sed 's/\x1b\[[0-9;]*m//g' > test_output.log)
 ```
+
+refinire cache system
+mkdir prova/prova1 con prova non esistente
+chmod opzionale?
+rifinire test (data fuori ) e problema con git
+informarsi su grandi file? che fare?
+

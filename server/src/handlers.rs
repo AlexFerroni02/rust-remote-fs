@@ -16,9 +16,10 @@ pub struct RemoteEntry {
     mtime: i64,
     perm: String,
 }
+const DATA_DIR: &str= "/home/luca/projects/rust-remote-fs/server/data";
 // Lettura file
 pub async fn get_file(Path(path): Path<String>) -> Result<String, StatusCode> {
-    let file_path = format!("data/{}", path);
+    let file_path = format!("{}/{}",DATA_DIR, path);
     match fs::read_to_string(&file_path) {
         Ok(content) => Ok(content),
         Err(_) => Err(StatusCode::NOT_FOUND),
@@ -27,7 +28,7 @@ pub async fn get_file(Path(path): Path<String>) -> Result<String, StatusCode> {
 
 // Scrittura file
 pub async fn put_file(Path(path): Path<String>, body: Body) -> StatusCode {
-    let file_path = format!("data/{}", path);
+    let file_path =  format!("{}/{}",DATA_DIR, path);
     
     let bytes = match axum::body::to_bytes(body, usize::MAX).await {
         Ok(bytes) => bytes,
@@ -42,7 +43,7 @@ pub async fn put_file(Path(path): Path<String>, body: Body) -> StatusCode {
 pub async fn list_directory_contents(path: Option<Path<String>>) -> Result<Json<Vec<RemoteEntry>>, StatusCode> {
     // Determina il percorso relativo
     let relative_path = path.map_or("".to_string(), |Path(p)| p);
-    let full_path = format!("data/{}", relative_path);
+    let full_path =  format!("{}/{}",DATA_DIR, relative_path);
 
     let mut entries = Vec::new();
     let read_dir = match fs::read_dir(&full_path) {
@@ -82,7 +83,7 @@ pub async fn list_directory_contents(path: Option<Path<String>>) -> Result<Json<
 
 // Creazione directory
 pub async fn mkdir(Path(path): Path<String>) -> StatusCode {
-    let dir_path = format!("data/{}", path);
+    let dir_path =  format!("{}/{}",DATA_DIR, path);
     match fs::create_dir_all(&dir_path) {
         Ok(_) => StatusCode::OK,
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -91,7 +92,7 @@ pub async fn mkdir(Path(path): Path<String>) -> StatusCode {
 
 // Cancellazione file o directory
 pub async fn delete_file(Path(path): Path<String>) -> StatusCode {
-    let file_path = format!("data/{}", path);
+    let file_path =  format!("{}/{}",DATA_DIR, path);
     if let Ok(meta) = fs::metadata(&file_path) {
         if meta.is_dir() {
             match fs::remove_dir_all(&file_path) {

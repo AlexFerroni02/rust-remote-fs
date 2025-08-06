@@ -29,8 +29,6 @@ info() { echo -e "${COLOR_INFO}INFO: $1${COLOR_RESET}"; }
 success() { echo -e "${COLOR_SUCCESS}✔ SUCCESS: $1${COLOR_RESET}"; }
 fail() { echo -e "${COLOR_FAIL}✖ FAILURE: $1${COLOR_RESET}"; }
 
-PROJECT_DATA_DIR=$(readlink -f "$BASE_DIR/../../data")
-
 cleanup() {
   info "Pulizia in corso..."
   umount -l "$MOUNT_POINT" 2>/dev/null || true

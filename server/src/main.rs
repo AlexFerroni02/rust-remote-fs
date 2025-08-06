@@ -12,7 +12,7 @@ use handlers::*;
 #[tokio::main]
 async fn main() {
     // Crea la directory data se non esiste
-    if let Err(e) = fs::create_dir_all("data") {
+    if let Err(e) = fs::create_dir_all("/home/luca/projects/rust-remote-fs/server/data") {
         println!("Warning: Could not create data directory: {}", e);
     }
 
