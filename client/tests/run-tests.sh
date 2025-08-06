@@ -25,9 +25,9 @@ else
   COLOR_RESET=''
 fi
 # --- Funzioni di Utility ---
-info() { echo -e "\e[34mINFO: $1\e[0m"; }
-success() { echo -e "\e[32m✔ SUCCESS: $1\e[0m"; }
-fail() { echo -e "\e[31m✖ FAILURE: $1\e[0m"; }
+info() { echo -e "${COLOR_INFO}INFO: $1${COLOR_RESET}"; }
+success() { echo -e "${COLOR_SUCCESS}✔ SUCCESS: $1${COLOR_RESET}"; }
+fail() { echo -e "${COLOR_FAIL}✖ FAILURE: $1${COLOR_RESET}"; }
 
 PROJECT_DATA_DIR=$(readlink -f "$BASE_DIR/../../data")
 
@@ -40,9 +40,6 @@ cleanup() {
   # Rimuovi la directory di mount e i log
   rm -rf "$MOUNT_POINT"
   rm -f "$SERVER_LOG" "$CLIENT_LOG"
-
-  # AGGIUNGI QUESTA RIGA: Rimuove la cartella 'data' creata alla radice
-  # rm -rf "$PROJECT_DATA_DIR"
 
   info "Pulizia completata."
 }
