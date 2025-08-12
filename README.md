@@ -353,3 +353,7 @@ Change: 2025-08-06 22:37:30.000000000 +0200
 Birth: -
 TODO verify stats
 
+ogni volta che fai il downlowad da git  usa 
+```bash
+dos2unix client/tests/run-tests.sh client/tests/cases/*.sh
+```

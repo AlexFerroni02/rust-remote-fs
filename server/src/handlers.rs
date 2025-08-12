@@ -16,7 +16,7 @@ pub struct RemoteEntry {
     mtime: i64,
     perm: String,
 }
-const DATA_DIR: &str= "/home/luca/projects/rust-remote-fs/server/data";
+const DATA_DIR: &str= "/home/alexf/projectFs/rust-remote-fs/server/data";
 // Lettura file
 pub async fn get_file(Path(path): Path<String>) -> Result<String, StatusCode> {
     let file_path = format!("{}/{}",DATA_DIR, path);

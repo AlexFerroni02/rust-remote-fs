@@ -4,7 +4,7 @@ use std::ffi::OsStr;
 use std::time::UNIX_EPOCH;
 use crate::api_client::{put_file_content_to_server, get_file_content_from_server, get_files_from_server};
 use super::{RemoteFS, TTL};
-
+use std::time::SystemTime;
 pub fn write(fs: &mut RemoteFS, _req: &Request<'_>, ino: u64, _fh: u64, offset: i64, data: &[u8], _write_flags: u32, _flags: i32, _lock_owner: Option<u64>, reply: ReplyWrite) {
     let file_path = match fs.inode_to_path.get(&ino) {
         Some(p) => p.clone(),
@@ -48,6 +48,9 @@ pub fn write(fs: &mut RemoteFS, _req: &Request<'_>, ino: u64, _fh: u64, offset: 
         new_content.extend_from_slice(&old_bytes[end_of_write..]);
     }
 
+    // Calcola la nuova size PRIMA di muovere new_content
+    let new_len = new_content.len() as u64;
+
     match String::from_utf8(new_content) {
         Ok(content_str) => {
             let res = fs.runtime.block_on(async {
@@ -55,7 +58,35 @@ pub fn write(fs: &mut RemoteFS, _req: &Request<'_>, ino: u64, _fh: u64, offset: 
             });
 
             match res {
-                Ok(_) => reply.written(data.len() as u32),
+                Ok(_) => {
+                    // Aggiorna cache attributi: size/blocks/mtime/atime
+                    let now = SystemTime::now();
+                    let kind = fs.inode_to_type.get(&ino).copied().unwrap_or(FileType::RegularFile);
+                    let mut attrs = fs.inode_to_attr.get(&ino).cloned().unwrap_or(fuser::FileAttr {
+                        ino,
+                        size: 0,
+                        blocks: 0,
+                        atime: now,
+                        mtime: now,
+                        ctime: now,
+                        crtime: now,
+                        kind,
+                        perm: if kind == fuser::FileType::Directory { 0o755 } else { 0o644 },
+                        nlink: if kind == fuser::FileType::Directory { 2 } else { 1 },
+                        uid: 501,
+                        gid: 20,
+                        rdev: 0,
+                        flags: 0,
+                        blksize: 5120,
+                    });
+                    attrs.size = new_len;
+                    attrs.blocks = (new_len + 511) / 512;
+                    attrs.mtime = now;
+                    attrs.atime = now;
+                    fs.inode_to_attr.insert(ino, attrs);
+
+                    reply.written(data.len() as u32)
+                }
                 Err(_) => reply.error(EIO),
             }
         },

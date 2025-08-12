@@ -1,0 +1,101 @@
+INFO: Preparazione dell'ambiente di test...
+INFO: Compilazione di server e client...
+INFO: Avvio del server...
+INFO: Avvio del client FUSE...
+INFO: Attesa che il mount point sia pronto...
+✔ SUCCESS: Mount point pronto!
+-------------------------------------------
+INFO: Esecuzione di: test_01_files.sh
+  - Test: Creare un file con 'touch'... PASS
+  - Test: Scrivere contenuto iniziale con '>'... PASS
+  - Test content: Verificare contenuto iniziale... PASS
+  - Test: Aggiungere contenuto con '>>'... PASS
+  - Test content: Verificare contenuto dopo l'append... PASS
+  - Test: Sovrascrivere con contenuto più corto... PASS
+  - Test content: Verificare contenuto dopo sovrascrittura corta... PASS
+  - Test: Sovrascrivere con contenuto più lungo... PASS
+  - Test content: Verificare contenuto dopo sovrascrittura lunga... PASS
+  - Test: Copiare il file... PASS
+  - Test: Rimuovere il file originale... PASS
+  - Test: Verificare che l'originale non esista più... PASS
+  - Test: Verificare che la copia esista ancora... PASS
+  - Test: Rimuovere la copia... PASS
+✔ SUCCESS: Il gruppo di test 'test_01_files.sh' è stato superato.
+-------------------------------------------
+INFO: Esecuzione di: test_02_dirs.sh
+  - Test: Creare una directory 'dir1'... PASS
+  - Test: Creare una struttura di directory annidata con '-p'... PASS
+  - Test: Listare il contenuto per verificare la creazione... PASS
+  - Test: Creare un file da spostare... PASS
+  - Test: Spostare il file dentro 'dir1/subdir'... PASS
+  - Test: Verificare che il file sia nella nuova posizione... PASS
+  - Test: Verificare che il file non sia più nella vecchia posizione... PASS
+  - Test: Rimuovere una directory vuota con 'rmdir'... PASS
+  - Test (atteso fallimento): Fallire nel rimuovere una directory non vuota con 'rmdir'... PASS (fallito come previsto)
+  - Test (atteso fallimento): Fallire nel rimuovere un file con 'rmdir'... PASS (fallito come previsto)
+  - Test: Rimuovere una directory e il suo contenuto con 'rm -r'... PASS
+  - Test: Verificare che la directory non esista più... PASS
+✔ SUCCESS: Il gruppo di test 'test_02_dirs.sh' è stato superato.
+-------------------------------------------
+INFO: Esecuzione di: test_03_advanced.sh
+Esecuzione test nel punto di mount: /tmp/remote_fs_test_mount
+--- Avvio dei Test ---
+Sezione 1: Test su nomi di file e directory particolari
+  - Test: Creare un file con spazi nel nome... PASS
+  - Test: Scrivere in un file con spazi nel nome... PASS
+  - Test: Verificare il contenuto del file... PASS
+  - Test: Creare un file nascosto (con il punto)... PASS
+  - Test: Verificare che 'ls' non mostri il file nascosto... PASS
+  - Test: Verificare che 'ls -a' mostri il file nascosto... PASS
+  - Test: Rimuovere i file speciali... PASS
+Sezione 2: Test su funzionalità che ora dovrebbero avere successo
+  - Preparazione: Creare un file per i test di rename/chmod...  - Test: Rinominare un file ('rename' implementato)... PASS
+  - Test: Modificare i permessi ('setattr' implementato)... PASS
+  - Test: Modificare la dimensione ('setattr' implementato)... PASS
+  - Test: Pulizia: Rimuovere il file di test rinominato... PASS
+Sezione 3: Test di carico leggero
+  - Test: Creare 10 file in un ciclo... PASS
+  - Test: Rimuovere i 10 file creati... PASS
+  - Test: Creare una directory e un file al suo interno... PASS
+  - Test: Rimuovere ricorsivamente la directory... PASS
+--- Riassunto dei Test ---
+Tutti i test completati con successo!
+✔ SUCCESS: Il gruppo di test 'test_03_advanced.sh' è stato superato.
+-------------------------------------------
+INFO: Esecuzione di: test_apassed_new.sh
+  - Test: Verify file timestamp preservation... PASS
+  - Test: Verify client startup and mount point readiness... PASS
+  - Test: Handle 404 error (file not found)... PASS
+  - Test: Measure latency for file creation... PASS
+  - Test: Verify directory listing correctness... PASS
+  - Test: Create nested directories with mkdir -p... PASS
+  - Test: Create a file in nested directory... PASS
+All tests passed successfully!
+✔ SUCCESS: Il gruppo di test 'test_apassed_new.sh' è stato superato.
+-------------------------------------------
+INFO: Esecuzione di: test_new.sh
+  - Test: Verify file size preservation... PASS
+  - Test: Verify file size preservation... PASS
+  - Test: Verify file permissions preservation... PASS
+  - Test: Verify client shutdown and unmount... FAIL
+    ----------------------------------------------------
+    REASON: Command failed with exit code 32.
+    COMMAND: umount '/tmp/remote_fs_test_mount' && ! mount | grep -q '/tmp/remote_fs_test_mount'
+    STDERR:
+    | umount: /tmp/remote_fs_test_mount: target is busy.
+    ----------------------------------------------------
+  - Test: Handle 500 error (server internal error)... FAIL
+    ----------------------------------------------------
+    REASON: Command failed with exit code 1.
+    COMMAND: ! curl -X GET http://localhost:8080/trigger_500
+    STDERR:
+    |   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+    |                                  Dload  Upload   Total   Spent    Left  Speed
+    |   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+    ----------------------------------------------------
+WARNING: 2 test(s) failed.
+✖ FAILURE: Il gruppo di test 'test_new.sh' è fallito.
+-------------------------------------------
+✖ FAILURE: 1 gruppo/i di test fallito/i.
+INFO: Pulizia in corso...
+INFO: Pulizia completata.
