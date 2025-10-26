@@ -1,0 +1,21 @@
+# Impostazioni per la cache degli attributi del filesystem client.
+
+# Strategia di caching da utilizzare.
+# Opzioni possibili: "ttl", "lru", "none"
+cache_strategy = "lru"
+
+# Durata in secondi per la cache TTL.
+# Usato solo se cache_strategy = "ttl".
+cache_ttl_seconds = 60
+
+# Numero massimo di elementi per la cache LRU (Least Recently Used).
+# Usato solo se cache_strategy = "lru".
+cache_lru_capacity = 1000
+
+# Timeout in secondi per la cache degli attributi del kernel.
+# Imposta per quanto tempo il kernel si fida degli attributi senza richiamare getattr.
+kernel_attr_timeout_seconds = 60
+
+# Timeout in secondi per la cache delle entry di directory del kernel.
+# Imposta per quanto tempo il kernel si fida dei risultati di lookup senza richiamarlo.
+kernel_entry_timeout_seconds = 60

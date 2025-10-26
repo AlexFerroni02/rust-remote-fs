@@ -5,15 +5,19 @@ use axum::{
     Json,
 };
 use std::time::UNIX_EPOCH;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{PermissionsExt, MetadataExt};
 use std::fs;
-use serde::Serialize;
-#[derive(Serialize)]
+use serde::{Deserialize, Serialize};
+#[derive(Serialize,Deserialize)]
 pub struct RemoteEntry {
     name: String,
     kind: String,
     size: u64,
     mtime: i64,
+    perm: String,
+}
+#[derive(Deserialize)]
+pub struct UpdatePermissions {
     perm: String,
 }
 const DATA_DIR: &str= "/home/alexf/projectFs/rust-remote-fs/server/data";
@@ -107,5 +111,29 @@ pub async fn delete_file(Path(path): Path<String>) -> StatusCode {
         }
     } else {
         StatusCode::NOT_FOUND
+    }
+}
+
+pub async fn patch_file(Path(path): Path<String>, Json(payload): Json<UpdatePermissions>) -> StatusCode {
+    let file_path = format!("{}/{}", DATA_DIR, path);
+
+    // Converte i permessi da stringa ottale a u32
+    let mode = match u32::from_str_radix(&payload.perm, 8) {
+        Ok(m) => m,
+        Err(_) => return StatusCode::BAD_REQUEST,
+    };
+
+    // Legge i permessi attuali e li imposta
+    match fs::metadata(&file_path) {
+        Ok(metadata) => {
+            let mut perms = metadata.permissions();
+            perms.set_mode(mode); // Imposta i nuovi permessi
+            if fs::set_permissions(&file_path, perms).is_ok() {
+                StatusCode::OK
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+        }
+        Err(_) => StatusCode::NOT_FOUND,
     }
 }

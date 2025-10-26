@@ -48,7 +48,7 @@ rm file_test.txt
 #test_command "Create a large file (100MB)" "dd if=/dev/zero of=large_file.txt bs=1M count=100 && [ -f large_file.txt ]"
 #test_command "Verify large file size" "[ \"\$(stat -c '%s' large_file.txt)\" -eq \$((100 * 1024 * 1024)) ]"
 #rm large_file.txt
-
+cd /tmp 
 # 4. Graceful Startup and Shutdown
 test_command "Verify client shutdown and unmount" "umount '$MOUNT_POINT' && ! mount | grep -q '$MOUNT_POINT'"
 

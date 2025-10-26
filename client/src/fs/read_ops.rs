@@ -1,18 +1,15 @@
-// src/fs/read_ops.rs
-
 use crate::api_client::{get_files_from_server,get_file_content_from_server};
 use fuser::{FileAttr, FileType, ReplyDirectory, ReplyEntry, Request, ReplyData, ReplyOpen};
 use libc::ENOENT;
 use std::ffi::OsStr;
 use std::time::{Duration, UNIX_EPOCH};
-use super::{RemoteFS, TTL};
+use super::{RemoteFS, TTL, ROOT_DIR_ATTR};
 
 pub fn lookup(fs: &mut RemoteFS, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
     let parent_path = match fs.inode_to_path.get(&parent) {
         Some(p) => p.clone(),
         None => { reply.error(ENOENT); return; }
     };
-
 
     let entry_list = match fs.runtime.block_on(get_files_from_server(&fs.client, &parent_path)) {
         Ok(list) => list,
@@ -30,20 +27,14 @@ pub fn lookup(fs: &mut RemoteFS, _req: &Request, parent: u64, name: &OsStr, repl
             new_ino
         });
 
-        let kind = if entry.kind == "directory" { FileType::Directory } else { FileType::RegularFile };
-        let perm = u16::from_str_radix(&entry.perm, 8).unwrap_or(if kind == FileType::Directory { 0o755 } else { 0o644 });
-        let attrs = FileAttr {
-            ino: inode, size: entry.size, blocks: (entry.size + 511) / 512,
-            atime: UNIX_EPOCH + Duration::from_secs(entry.mtime as u64),
-            mtime: UNIX_EPOCH + Duration::from_secs(entry.mtime as u64),
-            ctime: UNIX_EPOCH + Duration::from_secs(entry.mtime as u64),
-            crtime: UNIX_EPOCH, kind, perm,
-            nlink: if kind == FileType::Directory { 2 } else { 1 },
-            uid: 501, gid: 20, rdev: 0, flags: 0, blksize: 5120,
-        };
-        fs.inode_to_attr.insert(inode, attrs.clone());
-        fs.inode_to_type.insert(inode, kind);
-        reply.entry(&TTL, &attrs, 0);
+        // --- MODIFICA ---
+        // Chiama la nuova funzione helper che restituisce direttamente gli attributi.
+        if let Some(attr) = super::attr_ops::fetch_and_cache_attributes(fs, inode) {
+            reply.entry(&TTL, &attr, 0);
+        } else {
+            reply.error(ENOENT);
+        }
+        // --- FINE MODIFICA ---
     } else {
         reply.error(ENOENT);
     }
@@ -58,40 +49,38 @@ pub fn readdir(fs: &mut RemoteFS, _req: &Request, ino: u64, _fh: u64, offset: i6
     let mut entries_to_add: Vec<(u64, FileType, String)> = vec![];
     if offset == 0 {
         entries_to_add.push((ino, FileType::Directory, ".".to_string()));
-    }
-    if offset <= 1 {
-        entries_to_add.push((1, FileType::Directory, "..".to_string()));
-    }
-
-    let entry_list = match fs.runtime.block_on(get_files_from_server(&fs.client, &dir_path)) {
-        Ok(list) => list,
-        Err(_) => { reply.ok(); return; }
-    };
-
-    for entry in entry_list {
-        let full_path = if dir_path.is_empty() { entry.name.clone() } else { format!("{}/{}", dir_path, &entry.name) };
-        let inode = *fs.path_to_inode.entry(full_path.clone()).or_insert_with_key(|_key| {
-            let new_ino = fs.next_inode;
-            fs.next_inode += 1;
-            fs.inode_to_path.insert(new_ino, full_path);
-            new_ino
-        });
-
-        let kind = if entry.kind == "directory" { FileType::Directory } else { FileType::RegularFile };
-        let perm = u16::from_str_radix(&entry.perm, 8).unwrap_or(if kind == FileType::Directory { 0o755 } else { 0o644 });
-        let attrs = FileAttr {
-            ino, size: entry.size, blocks: (entry.size + 511) / 512,
-            atime: UNIX_EPOCH + Duration::from_secs(entry.mtime as u64),
-            mtime: UNIX_EPOCH + Duration::from_secs(entry.mtime as u64),
-            ctime: UNIX_EPOCH + Duration::from_secs(entry.mtime as u64),
-            crtime: UNIX_EPOCH, kind, perm,
-            nlink: if kind == FileType::Directory { 2 } else { 1 },
-            uid: 501, gid: 20, rdev: 0, flags: 0, blksize: 5120,
+        // Trova il parent inode per ".."
+        let parent_ino = if ino == 1 { 1 } else {
+            let parent_p = dir_path.rsplit_once('/').map_or("", |(p, _)| p);
+            *fs.path_to_inode.get(parent_p).unwrap_or(&1)
         };
-        fs.inode_to_attr.insert(inode, attrs);
-        fs.inode_to_type.insert(inode, kind);
-        entries_to_add.push((inode, kind, entry.name));
+        entries_to_add.push((parent_ino, FileType::Directory, "..".to_string()));
     }
+
+    // --- MODIFICA ---
+    // Non facciamo il fetch qui se non necessario.
+    // `readdir` deve solo fornire nomi, inode e tipi.
+    if offset < 2 { // Solo se dobbiamo leggere le entry reali
+        let entry_list = match fs.runtime.block_on(get_files_from_server(&fs.client, &dir_path)) {
+            Ok(list) => list,
+            Err(_) => { reply.ok(); return; }
+        };
+
+        for entry in entry_list {
+            let full_path = if dir_path.is_empty() { entry.name.clone() } else { format!("{}/{}", dir_path, &entry.name) };
+            let inode = *fs.path_to_inode.entry(full_path.clone()).or_insert_with_key(|_key| {
+                let new_ino = fs.next_inode;
+                fs.next_inode += 1;
+                fs.inode_to_path.insert(new_ino, full_path);
+                new_ino
+            });
+
+            let kind = if entry.kind.eq_ignore_ascii_case("dir") || entry.kind.eq_ignore_ascii_case("directory") { FileType::Directory } else { FileType::RegularFile };
+            fs.inode_to_type.insert(inode, kind);
+            entries_to_add.push((inode, kind, entry.name));
+        }
+    }
+    // --- FINE MODIFICA ---
 
     for (i, (ino_to_add, kind_to_add, name_to_add)) in entries_to_add.into_iter().enumerate().skip(offset as usize) {
         if reply.add(ino_to_add, (i + 1) as i64, kind_to_add, &name_to_add) {
@@ -129,6 +118,6 @@ pub fn read(fs: &mut RemoteFS, _req: &Request<'_>, ino: u64, _fh: u64, offset: i
     }
 }
 
-pub fn open(fs: &mut RemoteFS, _req: &Request<'_>, ino: u64, _flags: i32, reply: ReplyOpen) {
-    reply.opened(ino, 0);
+pub fn open(_fs: &mut RemoteFS, _req: &Request<'_>, _ino: u64, _flags: i32, reply: ReplyOpen) {
+    reply.opened(0, 0);
 }
