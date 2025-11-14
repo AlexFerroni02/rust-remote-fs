@@ -78,18 +78,10 @@ INFO: Esecuzione di: test_new.sh
   - Test: Verify file size preservation... PASS
   - Test: Verify file permissions preservation... PASS
   - Test: Verify client shutdown and unmount... PASS
-  - Test: Handle 500 error (server internal error)... FAIL
-    ----------------------------------------------------
-    REASON: Command failed with exit code 1.
-    COMMAND: ! curl -X GET http://localhost:8080/trigger_500
-    STDERR:
-    |   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
-    |                                  Dload  Upload   Total   Spent    Left  Speed
-    |   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
-    ----------------------------------------------------
-WARNING: 1 test(s) failed.
-✖ FAILURE: Il gruppo di test 'test_new.sh' è fallito.
+  - Test: Handle 500 error (server internal error)... PASS
+All tests passed successfully!
+✔ SUCCESS: Il gruppo di test 'test_new.sh' è stato superato.
 -------------------------------------------
-✖ FAILURE: 1 gruppo/i di test fallito/i.
+✔ SUCCESS: TUTTI I GRUPPI DI TEST SONO STATI SUPERATI!
 INFO: Pulizia in corso...
 INFO: Pulizia completata.

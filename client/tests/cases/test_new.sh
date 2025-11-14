@@ -53,7 +53,7 @@ cd /tmp
 test_command "Verify client shutdown and unmount" "umount '$MOUNT_POINT' && ! mount | grep -q '$MOUNT_POINT'"
 
 # 5. Error Handling for RESTful API
-test_command "Handle 500 error (server internal error)" "! curl -X GET http://localhost:8080/trigger_500"
+test_command "Handle 500 error (server internal error)" "! curl -f -X GET http://localhost:8080/trigger_500"
 
 
 # --- Final Result ---
