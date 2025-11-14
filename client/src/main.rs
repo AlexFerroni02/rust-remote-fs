@@ -5,7 +5,6 @@ mod fs;
 use fs::RemoteFS;
 use fuser::MountOption;
 use std::env;
-use std::time::Duration;
 
 fn main() {
     // 1. Carica la configurazione dal file config.toml

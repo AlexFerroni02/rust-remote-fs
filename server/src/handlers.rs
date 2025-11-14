@@ -5,9 +5,15 @@ use axum::{
     Json,
 };
 use std::time::UNIX_EPOCH;
-use std::os::unix::fs::{PermissionsExt, MetadataExt};
+use std::os::unix::fs::PermissionsExt;
 use std::fs;
 use serde::{Deserialize, Serialize};
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
+use tokio_util::io::ReaderStream;
+use http_body_util::BodyExt;
+use hyper::body::Frame;
+
 #[derive(Serialize,Deserialize)]
 pub struct RemoteEntry {
     name: String,
@@ -20,29 +26,35 @@ pub struct RemoteEntry {
 pub struct UpdatePermissions {
     perm: String,
 }
-const DATA_DIR: &str= "/home/alexf/projectFs/rust-remote-fs/server/data";
-// Lettura file
-pub async fn get_file(Path(path): Path<String>) -> Result<String, StatusCode> {
+const DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/data");// Lettura file
+pub async fn get_file(Path(path): Path<String>) -> Result<Body, StatusCode> {
     let file_path = format!("{}/{}",DATA_DIR, path);
-    match fs::read_to_string(&file_path) {
-        Ok(content) => Ok(content),
-        Err(_) => Err(StatusCode::NOT_FOUND),
-    }
+    let file = File::open(&file_path).await.map_err(|_| StatusCode::NOT_FOUND)?;
+    let stream = ReaderStream::new(file);
+    Ok(Body::from_stream(stream))
 }
 
 // Scrittura file
-pub async fn put_file(Path(path): Path<String>, body: Body) -> StatusCode {
-    let file_path =  format!("{}/{}",DATA_DIR, path);
-    
-    let bytes = match axum::body::to_bytes(body, usize::MAX).await {
-        Ok(bytes) => bytes,
-        Err(_) => return StatusCode::BAD_REQUEST,
+pub async fn put_file(Path(path): Path<String>, mut body: Body) -> StatusCode {
+    let file_path = format!("{}/{}", DATA_DIR, path);
+    let mut file = match File::create(&file_path).await {
+        Ok(f) => f,
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR,
     };
 
-    match fs::write(&file_path, &bytes) {
-        Ok(_) => StatusCode::OK,
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
-    }
+    while let Some(result) = body.frame().await {
+        let frame = match result {
+            Ok(frame) => frame,
+            Err(_) => return StatusCode::BAD_REQUEST, // Errore nello streaming del body
+        };
+
+        if let Some(data) = frame.data_ref() {
+            if file.write_all(data).await.is_err() {
+                return StatusCode::INTERNAL_SERVER_ERROR;
+            }
+        } }
+
+    StatusCode::OK
 }
 pub async fn list_directory_contents(path: Option<Path<String>>) -> Result<Json<Vec<RemoteEntry>>, StatusCode> {
     // Determina il percorso relativo

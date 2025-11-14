@@ -1,7 +1,7 @@
 use fuser::{FileAttr, FileType, ReplyCreate, ReplyWrite, ReplyEntry, Request, ReplyEmpty};
 use libc::{ENOENT, EIO,ENOTEMPTY};
 use std::ffi::OsStr;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 use crate::api_client::{put_file_content_to_server, get_file_content_from_server, get_files_from_server};
 use super::{RemoteFS, TTL};
 
@@ -20,14 +20,14 @@ pub fn write(fs: &mut RemoteFS, _req: &Request<'_>, ino: u64, _fh: u64, offset: 
 
     let old_content = match old_content_result {
         Ok(c) => c,
-        Err(_) if offset == 0 => "".to_string(),
+        Err(_) if offset == 0 => "".into(),
         Err(_) => {
             reply.error(EIO);
             return;
         }
     };
 
-    let old_bytes = old_content.as_bytes();
+    let old_bytes = &old_content;
     let offset = offset as usize;
 
     let final_capacity = std::cmp::max(offset + data.len(), old_bytes.len());
@@ -52,7 +52,7 @@ pub fn write(fs: &mut RemoteFS, _req: &Request<'_>, ino: u64, _fh: u64, offset: 
     match String::from_utf8(new_content) {
         Ok(content_str) => {
             let res = fs.runtime.block_on(async {
-                put_file_content_to_server(&fs.client, &file_path, &content_str).await
+                put_file_content_to_server(&fs.client, &file_path, content_str.into()).await
             });
 
             match res {
@@ -87,7 +87,7 @@ pub fn create(fs: &mut RemoteFS, _req: &Request<'_>, parent: u64, name: &OsStr, 
         format!("{}/{}", parent_path, filename)
     };
 
-    if fs.runtime.block_on(put_file_content_to_server(&fs.client, &full_path, "")).is_err() {
+    if fs.runtime.block_on(put_file_content_to_server(&fs.client, &full_path, "".into())).is_err() {
         reply.error(EIO);
         return;
     }
@@ -297,7 +297,7 @@ pub fn rename(fs: &mut RemoteFS, _req: &Request<'_>, parent: u64, name: &OsStr, 
             Ok(c) => c,
             Err(_) => { reply.error(ENOENT); return; }
         };
-        if fs.runtime.block_on(put_file_content_to_server(&fs.client, &new_full_path, &content)).is_err() {
+        if fs.runtime.block_on(put_file_content_to_server(&fs.client, &new_full_path, content)).is_err() {
             reply.error(EIO);
             return;
         }

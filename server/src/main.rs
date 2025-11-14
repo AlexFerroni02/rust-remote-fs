@@ -14,7 +14,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 #[tokio::main]
 async fn main() {
     // Crea la directory data se non esiste
-    if let Err(e) = fs::create_dir_all("/home/luca/projects/rust-remote-fs/server/data") {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    if let Err(e) = fs::create_dir_all(manifest_dir.to_owned() + "/data"){
         println!("Warning: Could not create data directory: {}", e);
     }
     tracing_subscriber::registry()

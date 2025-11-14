@@ -11,7 +11,7 @@ mod attr_ops;
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, UNIX_EPOCH};
 use crate::config::Config;
 use crate::fs::cache::AttributeCache;
 

@@ -1,9 +1,8 @@
 use crate::api_client::{get_files_from_server,get_file_content_from_server};
-use fuser::{FileAttr, FileType, ReplyDirectory, ReplyEntry, Request, ReplyData, ReplyOpen};
+use fuser::{FileType, ReplyDirectory, ReplyEntry, Request, ReplyData, ReplyOpen};
 use libc::ENOENT;
 use std::ffi::OsStr;
-use std::time::{Duration, UNIX_EPOCH};
-use super::{RemoteFS, TTL, ROOT_DIR_ATTR};
+use super::{RemoteFS, TTL};
 
 pub fn lookup(fs: &mut RemoteFS, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
     let parent_path = match fs.inode_to_path.get(&parent) {
@@ -17,7 +16,7 @@ pub fn lookup(fs: &mut RemoteFS, _req: &Request, parent: u64, name: &OsStr, repl
     };
 
     let name_str = name.to_str().unwrap();
-    if let Some(entry) = entry_list.iter().find(|e| e.name == name_str) {
+    if let Some(_entry) = entry_list.iter().find(|e| e.name == name_str) {
         let full_path = if parent_path.is_empty() { name_str.to_string() } else { format!("{}/{}", parent_path, name_str) };
 
         let inode = *fs.path_to_inode.entry(full_path.clone()).or_insert_with_key(|_key| {
@@ -100,7 +99,7 @@ pub fn read(fs: &mut RemoteFS, _req: &Request<'_>, ino: u64, _fh: u64, offset: i
 
         match content_result {
             Ok(content) => {
-                let content_bytes = content.as_bytes();
+                let content_bytes = &content;
                 let start = offset as usize;
                 if start >= content_bytes.len() {
                     reply.data(&[]);

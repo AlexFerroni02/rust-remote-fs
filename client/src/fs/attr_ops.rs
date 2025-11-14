@@ -91,13 +91,13 @@ pub fn setattr(fs: &mut RemoteFS, _req: &Request<'_>, ino: u64, mode: Option<u32
     if let Some(new_size) = size {
         let old_content = match fs.runtime.block_on(get_file_content_from_server(&fs.client, &path)) {
             Ok(c) => c,
-            Err(_) => "".to_string(),
+            Err(_) => "".into()
         };
-        let mut bytes = old_content.into_bytes();
+        let mut bytes = old_content.to_vec();
         bytes.resize(new_size as usize, 0);
 
         if let Ok(new_content_str) = String::from_utf8(bytes) {
-            if fs.runtime.block_on(put_file_content_to_server(&fs.client, &path, &new_content_str)).is_err() {
+            if fs.runtime.block_on(put_file_content_to_server(&fs.client, &path, new_content_str.into())).is_err() {
                 reply.error(EIO);
                 return;
             }

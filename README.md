@@ -357,3 +357,5 @@ ogni volta che fai il downlowad da git  usa
 ```bash
 dos2unix client/tests/run-tests.sh client/tests/cases/*.sh
 ```
+
+sed -i 's/\r$//' ./client/tests/cases/test_apassed_new.sh
