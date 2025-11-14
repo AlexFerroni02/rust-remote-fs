@@ -14,6 +14,7 @@ use std::ffi::OsStr;
 use std::time::{Duration, UNIX_EPOCH};
 use crate::config::Config;
 use crate::fs::cache::AttributeCache;
+use bytes::Bytes; // <-- AGGIUNTO
 
 pub(crate) const TTL: Duration = Duration::from_secs(5); // Questo è il TTL per il kernel, non la nostra cache
 pub(crate) const ROOT_DIR_ATTR: FileAttr = FileAttr {
@@ -21,6 +22,16 @@ pub(crate) const ROOT_DIR_ATTR: FileAttr = FileAttr {
     crtime: UNIX_EPOCH, kind: FileType::Directory, perm: 0o755, nlink: 2, uid: 501, gid: 20,
     rdev: 0, flags: 0, blksize: 5120,
 };
+
+// --- AGGIUNTO ---
+/// Definisce la cache in RAM per un file aperto in scrittura
+pub struct OpenWriteFile {
+    /// Il path relativo del file sul server (es. "a.txt")
+    pub(crate) path: String,
+    /// Un buffer per i blocchi di dati. La chiave è l'offset (i64).
+    pub(crate) buffer: HashMap<i64, Vec<u8>>,
+}
+// --- FINE AGGIUNTO ---
 
 pub struct RemoteFS {
     pub(crate) client: reqwest::Client,
@@ -32,6 +43,13 @@ pub struct RemoteFS {
     // Campi per la nuova cache e configurazione
     pub(crate) attribute_cache: AttributeCache,
     pub(crate) config: Config,
+
+    // --- AGGIUNTO ---
+    /// Traccia i file aperti in scrittura usando il File Handle (fh) come chiave
+    pub(crate) open_files: HashMap<u64, OpenWriteFile>,
+    /// Contatore per generare File Handle (fh) unici
+    pub(crate) next_fh: u64,
+    // --- FINE AGGIUNTO ---
 }
 
 impl RemoteFS {
@@ -46,6 +64,11 @@ impl RemoteFS {
             next_inode: 2,
             attribute_cache: AttributeCache::new(&config),
             config,
+
+            // --- AGGIUNTO ---
+            open_files: HashMap::new(),
+            next_fh: 1, // Inizia da 1
+            // --- FINE AGGIUNTO ---
         };
 
         // Inizializza la root directory
