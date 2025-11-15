@@ -1,4 +1,33 @@
 use super::prelude::*;
+
+/// Handles the FUSE `rename` operation (e.g., `mv old.txt dir/new.txt`).
+///
+/// This function implements the move operation by performing a "Copy + Delete"
+/// strategy on the remote server for files.
+///
+/// # File Logic
+/// 1. Fetches the *entire* content of the source file (`old_full_path`).
+/// 2. Writes that content to the *new* file path (`new_full_path`).
+/// 3. Deletes the *old* file from the server.
+///
+/// # Directory Logic (Simplified)
+/// The logic for renaming directories is currently simplified. It only sends a
+/// `DELETE` request for the *source* directory and does not create the
+/// destination directory or move its contents.
+///
+/// # Internal State
+/// After a successful server operation, this function updates the internal
+/// `path_to_inode` and `inode_to_path` maps to reflect the new path,
+/// reusing the existing inode. It also invalidates the attribute cache
+/// for the moved item and its parent directories.
+///
+/// # Arguments
+/// * `fs` - The mutable `RemoteFS` state.
+/// * `parent` - The inode of the source directory.
+/// * `name` - The name of the source file/directory.
+/// * `newparent` - The inode of the destination directory.
+/// * `newname` - The new name for the file/directory.
+/// * `reply` - The reply object to send success or an error code.
 pub fn rename(fs: &mut RemoteFS, _req: &Request<'_>, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr, _flags: u32, reply: ReplyEmpty) {
     let old_parent_path = match fs.inode_to_path.get(&parent) {
         Some(p) => p.clone(),
@@ -41,7 +70,7 @@ pub fn rename(fs: &mut RemoteFS, _req: &Request<'_>, parent: u64, name: &OsStr, 
     let is_dir = fs.inode_to_type.get(&inode).copied() == Some(FileType::Directory);
 
     if is_dir {
-        // Logica per le directory (semplificata)
+        // Simplified logic for directories
         let result = fs.runtime.block_on(async {
             let url = format!("http://localhost:8080/files/{}", old_full_path);
             fs.client.delete(&url).send().await
@@ -51,7 +80,7 @@ pub fn rename(fs: &mut RemoteFS, _req: &Request<'_>, parent: u64, name: &OsStr, 
             return;
         }
     } else {
-        // Logica per i file (Copia + Cancella)
+        // "Copy + Delete" logic for files
         let content = match fs.runtime.block_on(get_file_content_from_server(&fs.client, &old_full_path)) {
             Ok(c) => c,
             Err(_) => { reply.error(ENOENT); return; }
@@ -61,9 +90,8 @@ pub fn rename(fs: &mut RemoteFS, _req: &Request<'_>, parent: u64, name: &OsStr, 
             return;
         }
 
-        // --- QUESTA ERA LA RIGA SBAGLIATA ---
+        // Delete the old file (this was the line with the port 88 bug)
         if fs.runtime.block_on(async {
-            // Corretto: :8080
             let url = format!("http://localhost:8080/files/{}", old_full_path);
             fs.client.delete(&url).send().await
         }).is_err() {
@@ -72,13 +100,14 @@ pub fn rename(fs: &mut RemoteFS, _req: &Request<'_>, parent: u64, name: &OsStr, 
         }
     }
 
-    // Aggiorna le cache interne
+    // Update internal caches to reflect the move
     if let Some(&inode) = fs.path_to_inode.get(&old_full_path) {
         fs.attribute_cache.remove(&inode);
         fs.path_to_inode.remove(&old_full_path);
         fs.path_to_inode.insert(new_full_path.clone(), inode);
         fs.inode_to_path.insert(inode, new_full_path);
     }
+    // Invalidate parent directory caches
     if is_dir {
         if let Some(&inode_parent) = fs.path_to_inode.get(&old_parent_path) {
             fs.attribute_cache.remove(&inode_parent);
