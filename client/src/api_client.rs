@@ -1,14 +1,8 @@
 use reqwest::Body;
 use reqwest::Client;
 use serde::Deserialize;
-use bytes::Bytes; // <-- AGGIUNTO
+use bytes::Bytes;
 
-// --- RIMOSSI ---
-// use tokio::fs::File;
-// use tokio::io::{AsyncReadExt, AsyncWriteExt};
-// use tokio_util::io::ReaderStream;
-// use futures_util::StreamExt;
-// ---------------
 
 #[derive(Deserialize, Debug)]
 pub struct RemoteEntry {

@@ -1,15 +1,4 @@
-use crate::api_client::{get_files_from_server,get_file_content_from_server};
-use fuser::{FileType, ReplyDirectory, ReplyEntry, Request, ReplyData, ReplyOpen};
-use libc::ENOENT;
-use std::ffi::OsStr;
-use super::{RemoteFS, TTL};
-
-// --- AGGIUNTE NECESSARIE ---
-use libc; // Per i flag O_WRONLY, O_RDWR
-use super::OpenWriteFile; // Per la struct della cache
-use std::collections::HashMap; // Per creare la cache
-// --- FINE AGGIUNTE ---
-
+use super::prelude::*;
 pub fn lookup(fs: &mut RemoteFS, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
     let parent_path = match fs.inode_to_path.get(&parent) {
         Some(p) => p.clone(),
@@ -33,7 +22,7 @@ pub fn lookup(fs: &mut RemoteFS, _req: &Request, parent: u64, name: &OsStr, repl
         });
 
         // NOTA: 'fetch_and_cache_attributes' deve esistere in attr_ops.rs
-        if let Some(attr) = crate::fs::attr_ops::fetch_and_cache_attributes(fs, inode) {
+        if let Some(attr) = crate::fs::attr::fetch_and_cache_attributes(fs, inode) {
             reply.entry(&TTL, &attr, 0);
         } else {
             reply.error(ENOENT);

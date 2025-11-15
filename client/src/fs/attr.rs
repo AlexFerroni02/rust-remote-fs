@@ -1,11 +1,6 @@
-use fuser::{FileAttr, FileType, ReplyAttr, Request, TimeOrNow};
-use libc::{EIO, ENOENT};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use crate::api_client::{get_file_content_from_server, get_files_from_server, put_file_content_to_server};
-use super::{RemoteFS, TTL, ROOT_DIR_ATTR};
+use super::prelude::*;
 use serde_json::json;
-/// Funzione helper che ottiene gli attributi, usando la cache o il server.
-/// Restituisce un `Option<FileAttr>` invece di usare un oggetto `Reply`.
+
 pub fn fetch_and_cache_attributes(fs: &mut RemoteFS, ino: u64) -> Option<FileAttr> {
     if ino == 1 {
         return Some(ROOT_DIR_ATTR);
@@ -64,7 +59,7 @@ pub fn getattr(fs: &mut RemoteFS, _req: &Request, ino: u64, reply: ReplyAttr) {
     }
 }
 
-pub fn setattr(fs: &mut RemoteFS, _req: &Request<'_>, ino: u64, mode: Option<u32>, _uid: Option<u32>, _gid: Option<u32>, size: Option<u64>, atime: Option<TimeOrNow>, mtime: Option<TimeOrNow>, _ctime: Option<SystemTime>, _fh: Option<u64>, _crtime: Option<SystemTime>, _chgtime: Option<SystemTime>, _bkuptime: Option<SystemTime>, _flags: Option<u32>, reply: ReplyAttr) {
+pub fn setattr(fs: &mut RemoteFS, _req: &Request<'_>, ino: u64, mode: Option<u32>, _uid: Option<u32>, _gid: Option<u32>, size: Option<u64>, _atime: Option<TimeOrNow>, _mtime: Option<TimeOrNow>, _ctime: Option<SystemTime>, _fh: Option<u64>, _crtime: Option<SystemTime>, _chgtime: Option<SystemTime>, _bkuptime: Option<SystemTime>, _flags: Option<u32>, reply: ReplyAttr) {
     
     let path = match fs.inode_to_path.get(&ino) {
         Some(p) => p.clone(),

@@ -5,10 +5,8 @@ use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
 use crate::config::{Config, CacheStrategy};
 
-// Wrapper per una entry della cache con timestamp di scadenza (per TTL)
-// Non serve che sia `pub` perché è un dettaglio implementativo del modulo
 #[derive(Debug)]
-struct TtlEntry {
+pub(crate) struct TtlEntry {
     attr: FileAttr,
     expiry: Instant,
 }
