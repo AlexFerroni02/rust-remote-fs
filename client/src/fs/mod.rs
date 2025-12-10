@@ -6,7 +6,7 @@
 //! The `impl Filesystem` block acts as the primary dispatcher, receiving
 //! calls from the FUSE kernel and forwarding them to the appropriate
 //! sub-modules (`attr`, `read`, `write`, etc.) for processing.
-
+use std::sync::{Arc, Mutex};
 use fuser::{
     FileAttr, FileType, Filesystem, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEntry,
     ReplyOpen, ReplyWrite, Request, ReplyEmpty
@@ -108,91 +108,107 @@ impl RemoteFS {
     }
 }
 
+#[derive(Clone)]
+pub struct FsWrapper(pub Arc<Mutex<RemoteFS>>);
 /// Main FUSE trait implementation.
 ///
 /// This block acts as a simple "dispatcher" or "router". All FUSE kernel
 /// calls land here, and are immediately forwarded to the appropriate
 /// function in one of the sub-modules (e.g., `attr::getattr`).
-impl Filesystem for RemoteFS {
+impl Filesystem for FsWrapper {
     // --- Attribute Operations (attr.rs) ---
 
     /// Delegates `getattr` to `attr::getattr`.
     fn getattr(&mut self, req: &Request, ino: u64, reply: ReplyAttr) {
-        attr::getattr(self, req, ino, reply);
+        let mut fs = self.0.lock().unwrap();
+        attr::getattr(&mut fs, req, ino, reply);
     }
 
     /// Delegates `setattr` to `attr::setattr`.
     fn setattr(&mut self, req: &Request<'_>, ino: u64, mode: Option<u32>, uid: Option<u32>, gid: Option<u32>, size: Option<u64>, atime: Option<fuser::TimeOrNow>, mtime: Option<fuser::TimeOrNow>, ctime: Option<std::time::SystemTime>, fh: Option<u64>, crtime: Option<std::time::SystemTime>, chgtime: Option<std::time::SystemTime>, bkuptime: Option<std::time::SystemTime>, flags: Option<u32>, reply: ReplyAttr) {
-        attr::setattr(self, req, ino, mode, uid, gid, size, atime, mtime, ctime, fh, crtime, chgtime, bkuptime, flags, reply);
+        let mut fs = self.0.lock().unwrap();
+        attr::setattr(&mut fs, req, ino, mode, uid, gid, size, atime, mtime, ctime, fh, crtime, chgtime, bkuptime, flags, reply);
     }
 
     // --- Read Operations (read.rs) ---
 
     /// Delegates `lookup` to `read::lookup`.
     fn lookup(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        read::lookup(self, req, parent, name, reply);
+        let mut fs = self.0.lock().unwrap();
+        read::lookup(&mut fs, req, parent, name, reply);
     }
 
     /// Delegates `readdir` to `read::readdir`.
     fn readdir(&mut self, req: &Request, ino: u64, fh: u64, offset: i64, reply: ReplyDirectory) {
-        read::readdir(self, req, ino, fh, offset, reply);
+        let mut fs = self.0.lock().unwrap();
+        read::readdir(&mut fs, req, ino, fh, offset, reply);
     }
 
     /// Delegates `read` to `read::read`.
     fn read(&mut self, req: &Request<'_>, ino: u64, fh: u64, offset: i64, size: u32, flags: i32, lock_owner: Option<u64>, reply: ReplyData) {
-        read::read(self, req, ino, fh, offset, size, flags, lock_owner, reply);
+        let mut fs = self.0.lock().unwrap();
+        read::read(&mut fs, req, ino, fh, offset, size, flags, lock_owner, reply);
     }
 
     /// Delegates `open` to `read::open`.
     fn open(&mut self, req: &Request<'_>, ino: u64, flags: i32, reply: ReplyOpen) {
-        read::open(self, req, ino, flags, reply);
+        let mut fs = self.0.lock().unwrap();
+        read::open(&mut fs, req, ino, flags, reply);
     }
 
     // --- Write Operations (write.rs) ---
 
     /// Delegates `write` to `write::write`.
     fn write(&mut self, req: &Request<'_>, ino: u64, fh: u64, offset: i64, data: &[u8], write_flags: u32, flags: i32, lock_owner: Option<u64>, reply: ReplyWrite) {
-        write::write(self, req, ino, fh, offset, data, write_flags, flags, lock_owner, reply);
+        let mut fs = self.0.lock().unwrap();
+        write::write(&mut fs, req, ino, fh, offset, data, write_flags, flags, lock_owner, reply);
     }
 
     /// Delegates `release` to `write::release`.
     fn release(&mut self, _req: &Request<'_>, _ino: u64, _fh: u64, _flags: i32, _lock_owner: Option<u64>, _flush: bool, reply: ReplyEmpty) {
-        write::release(self, _req, _ino, _fh, _flags, _lock_owner, _flush, reply);
+        let mut fs = self.0.lock().unwrap();
+        write::release(&mut fs, _req, _ino, _fh, _flags, _lock_owner, _flush, reply);
     }
 
     /// Delegates `flush` to `write::flush`.
     fn flush(&mut self, _req: &Request<'_>, _ino: u64, _fh: u64, _lock_owner: u64, reply: ReplyEmpty) {
-        write::flush(self, _req, _ino, _fh, _lock_owner, reply);
+        let mut fs = self.0.lock().unwrap();
+        write::flush(&mut fs, _req, _ino, _fh, _lock_owner, reply);
     }
 
     // --- Create Operations (create.rs) ---
 
     /// Delegates `create` to `create::create`.
     fn create(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, mode: u32, umask: u32, flags: i32, reply: ReplyCreate) {
-        create::create(self, req, parent, name, mode, umask, flags, reply);
+        let mut fs = self.0.lock().unwrap();
+        create::create(&mut fs, req, parent, name, mode, umask, flags, reply);
     }
 
     /// Delegates `mkdir` to `create::mkdir`.
     fn mkdir(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, mode: u32, umask: u32, reply: ReplyEntry) {
-        create::mkdir(self, req, parent, name, mode, umask, reply);
+        let mut fs = self.0.lock().unwrap();
+        create::mkdir(&mut fs, req, parent, name, mode, umask, reply);
     }
 
     // --- Delete Operations (delete.rs) ---
 
     /// Delegates `unlink` to `delete::unlink`.
     fn unlink(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
-        delete::unlink(self, req, parent, name, reply);
+        let mut fs = self.0.lock().unwrap();
+        delete::unlink(&mut fs, req, parent, name, reply);
     }
 
     /// Delegates `rmdir` to `delete::rmdir`.
     fn rmdir(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEmpty) {
-        delete::rmdir(self, req, parent, name, reply);
+        let mut fs = self.0.lock().unwrap();
+        delete::rmdir(&mut fs, req, parent, name, reply);
     }
 
     // --- Rename Operations (rename.rs) ---
 
     /// Delegates `rename` to `rename::rename`.
     fn rename(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr, flags: u32, reply: ReplyEmpty) {
-        rename::rename(self, req, parent, name, newparent, newname, flags, reply);
+        let mut fs = self.0.lock().unwrap();
+        rename::rename(&mut fs, req, parent, name, newparent, newname, flags, reply);
     }
 }

@@ -11,16 +11,22 @@ pub mod api_client;
 mod config;
 mod fs;
 
-use fs::RemoteFS;
+use fs::{RemoteFS, FsWrapper};
 use fuser::MountOption;
 use std::env;
+use std::sync::{Arc, Mutex};
+use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
+use url::Url;
+use futures_util::StreamExt;
 
+// NOTA: Non usiamo #[tokio::main] qui perché FUSE deve girare su un thread sincrono,
+// mentre block_on verrebbe chiamato all'interno di un contesto async, causando il panico.
 fn main() {
-    // 1. Load configuration from `config.toml`
+    // 1. Load configuration
     let config = config::load_config();
     println!("Configuration loaded: {:?}", config);
 
-    // 2. Parse the mountpoint from command-line arguments
+    // 2. Parse mountpoint
     let mountpoint = match env::args_os().nth(1) {
         Some(path) => path,
         None => {
@@ -29,11 +35,27 @@ fn main() {
         }
     };
 
-    // 3. Create an instance of the filesystem, passing in the configuration
-    let filesystem = RemoteFS::new(config.clone());
+    // 3. Crea l'istanza di RemoteFS.
+    // RemoteFS::new crea internamente il SUO runtime per le chiamate API.
+    let fs_inner = RemoteFS::new(config.clone());
+    let fs_wrapper = FsWrapper(Arc::new(Mutex::new(fs_inner)));
 
-    // 4. Mount the filesystem
-    // We use `AutoUnmount` to automatically unmount when this process exits.
+    // 4. Avvia il watcher.
+    // Poiché non siamo in un runtime Tokio globale, dobbiamo creare un runtime
+    // dedicato SOLO per il watcher, oppure usare un thread separato che avvia un runtime.
+    // Qui usiamo un thread standard che crea un runtime "usa e getta" per il watcher.
+    let fs_clone_for_watcher = fs_wrapper.0.clone();
+    std::thread::spawn(move || {
+        // Creiamo un runtime locale solo per questo thread del watcher
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            connect_and_watch(fs_clone_for_watcher).await;
+        });
+    });
+
+    // 5. Monta il filesystem (Bloccante, Sincrono)
+    // Questo deve girare sul thread principale libero da contesti async.
+    let filesystem = fs_wrapper;
     let options = vec![
         MountOption::AutoUnmount,
         MountOption::FSName("remoteFS".to_string()),
@@ -41,5 +63,61 @@ fn main() {
     println!("Mounting filesystem at {:?}", mountpoint);
     if let Err(e) = fuser::mount2(filesystem, &mountpoint, &options) {
         eprintln!("Failed to mount filesystem: {}", e);
+    }
+}
+
+async fn connect_and_watch(fs_arc: Arc<Mutex<RemoteFS>>) {
+    // L'URL deve essere corretto. Assicurati che il server sia su localhost:8080
+    let url_str = "ws://localhost:8080/ws";
+    let url = Url::parse(url_str).expect("URL WebSocket non valido");
+    
+    println!("[WATCHER_CLIENT] Avvio loop di connessione verso {}", url_str);
+
+    loop {
+        match connect_async(url.clone()).await {
+            Ok((ws_stream, _)) => {
+                println!("[WATCHER_CLIENT] Connesso al watcher del server.");
+                let (_, mut read) = ws_stream.split();
+
+                while let Some(message) = read.next().await {
+                    match message {
+                        Ok(Message::Text(text)) => {
+                            println!("[WATCHER_CLIENT] Ricevuta notifica: {}", text);
+                            if let Some(path_str) = text.strip_prefix("CHANGE:") {
+                                // Blocca il mutex per accedere allo stato del filesystem
+                                // Nota: Questo blocco è breve e sicuro.
+                                let mut fs = fs_arc.lock().unwrap();
+                                
+                                let parent_path = std::path::Path::new(path_str)
+                                    .parent()
+                                    .map_or("".to_string(), |p| p.to_string_lossy().to_string());
+                                
+                                // Copia l'inode per rilasciare il borrow su fs
+                                let ino_to_invalidate = fs.path_to_inode.get(&parent_path).copied();
+
+                                if let Some(parent_ino) = ino_to_invalidate {
+                                    println!("[WATCHER_CLIENT] Invalido la cache per la directory '{}' (inode {})", parent_path, parent_ino);
+                                    fs.attribute_cache.remove(&parent_ino);
+                                }
+                            }
+                        }
+                        Ok(Message::Close(_)) => {
+                            println!("[WATCHER_CLIENT] Il server ha chiuso la connessione.");
+                            break;
+                        }
+                        Err(e) => {
+                            eprintln!("[WATCHER_CLIENT] Errore nella lettura del messaggio: {}", e);
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+                println!("[WATCHER_CLIENT] Disconnesso. Riconnessione...");
+            }
+            Err(e) => {
+                println!("[WATCHER_CLIENT] Connessione fallita: {}. Riprovo tra 5 secondi...", e);
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            }
+        }
     }
 }

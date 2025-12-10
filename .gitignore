@@ -1,0 +1,10 @@
+# Ignora la cartella di compilazione a livello di workspace
+/target
+
+# Ignora i file specifici dell'IDE
+.idea/
+*.rs.bk
+*.pdb
+
+# Log di test
+test_output.log

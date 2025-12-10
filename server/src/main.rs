@@ -8,15 +8,25 @@
 mod handlers;
 
 use axum::{
+    extract::{ws::{Message, WebSocket, WebSocketUpgrade}, State},
+    response::IntoResponse,
     routing::{get, put, post, delete,patch},
     Router,
 };
+use futures_util::{sink::SinkExt, stream::StreamExt};
+use notify::{RecursiveMode, Watcher};
+use std::sync::Arc;
+use tokio::sync::broadcast;
 use std::net::SocketAddr;
 use std::fs;
 use handlers::*; // Import all handlers from the handlers module
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
+// --- STATE FOR  WEBSOCKET ---
+#[derive(Clone)]
+struct AppState {
+    tx: Arc<broadcast::Sender<String>>,
+}
 #[tokio::main]
 async fn main() {
     // Ensure the data directory exists.
@@ -34,12 +44,44 @@ async fn main() {
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
+    // --- LOGICA DEL WATCHER E WEBSOCKET ---
+    let (tx, _) = broadcast::channel(100);
+    let app_state = AppState { tx: Arc::new(tx) };
+
+    let watcher_tx = app_state.tx.clone();
+    tokio::spawn(async move {
+        let mut watcher = match notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
+            if let Ok(event) = res {
+                for path in event.paths {
+                    if let Ok(relative_path) = path.strip_prefix(DATA_DIR) {
+                        let msg = format!("CHANGE:{}", relative_path.to_string_lossy());
+                        println!("[WATCHER] Rilevato cambiamento: {}", msg);
+                        let _ = watcher_tx.send(msg);
+                    }
+                }
+            }
+        }) {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("[WATCHER] Errore nell'avviare il watcher: {}", e);
+                return;
+            }
+        };
+
+        if let Err(e) = watcher.watch(std::path::Path::new(DATA_DIR), RecursiveMode::Recursive) {
+            eprintln!("[WATCHER] Errore nel monitorare la directory {}: {}", DATA_DIR, e);
+            return;
+        }
+
+        println!("[WATCHER] Watcher del filesystem avviato sulla directory: {}", DATA_DIR);
+        std::future::pending::<()>().await;
+    });
 
     // Define the application's routes.
     let app = Router::new()
         // A simple health check endpoint.
         .route("/health", get(|| async { "OK" }))
-
+        .route("/ws", get(websocket_handler))
         // Routes for listing directory contents.
         // Both `/list` (for root) and `/list/*path` (for subdirs)
         // are handled by the same `list_directory_contents` handler.
@@ -54,8 +96,8 @@ async fn main() {
         .route("/files/*path", get(get_file).put(put_file).delete(delete_file).patch(patch_file))
 
         // Apply a logging layer to trace all HTTP requests.
-        .layer(TraceLayer::new_for_http());
-
+        .layer(TraceLayer::new_for_http())
+        .with_state(app_state);
 
     // Bind the server to the loopback address on port 8080.
     let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
@@ -64,4 +106,36 @@ async fn main() {
     tracing::debug!("listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
+}
+
+async fn websocket_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    ws.on_upgrade(|socket| websocket(socket, state))
+}
+
+async fn websocket(stream: WebSocket, state: AppState) {
+    let (mut sender, mut receiver) = stream.split();
+    let mut rx = state.tx.subscribe();
+
+    let mut send_task = tokio::spawn(async move {
+        while let Ok(msg) = rx.recv().await {
+            if sender.send(Message::Text(msg)).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    let mut recv_task = tokio::spawn(async move {
+        while let Some(Ok(Message::Close(_))) = receiver.next().await {
+            break;
+        }
+    });
+
+    tokio::select! {
+        _ = (&mut send_task) => recv_task.abort(),
+        _ = (&mut recv_task) => send_task.abort(),
+    };
+    println!("[WEBSOCKET] Client disconnesso.");
 }

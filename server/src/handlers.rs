@@ -34,7 +34,7 @@ pub struct UpdatePermissions {
 
 /// Defines the root directory on the server where all remote files are stored.
 /// It's set to a `data` subdirectory within the project's root.
-const DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/data");
+pub const DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/data");
 
 /// Handles `GET /files/<path>`.
 ///

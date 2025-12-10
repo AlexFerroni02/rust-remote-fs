@@ -7,8 +7,8 @@ edition = "2024"
 
 [dependencies]
 hyper = { version = "1.8.1", features = ["full"] }
-axum = "0.7.9"
-tokio = { version = "1.37.0", features = ["full"] }
+axum = { version = "0.7.9", features = ["ws"] }
+tokio = { version = "1.37.0", features = ["full", "sync"] }
 tokio-util = "0.7"
 openssl = { version = "0.10", features = ["vendored"] }
 reqwest = { version = "0.12.22", features = ["json"] }
@@ -17,3 +17,6 @@ tower-http = { version = "0.6.6", features = ["trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 http-body-util = { version = "0.1.3", features = ["full"] }
+
+notify = "6.1.1"
+futures-util = "0.3"
