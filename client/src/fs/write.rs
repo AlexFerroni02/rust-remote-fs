@@ -83,7 +83,7 @@ pub fn release(
 
         // 1. Download the current content
         let old_content_result = fs.runtime.block_on(
-            api_client::get_file_content_from_server(&fs.client, &open_file.path)
+            api_client::get_file_content_from_server(&fs.client, &open_file.path,  &fs.config.server_url)
         );
 
         // Start with the old content, or an empty Vec if the file is new/empty
@@ -108,7 +108,8 @@ pub fn release(
             api_client::put_file_content_to_server(
                 &fs.client,
                 &open_file.path,
-                Bytes::from(new_data_vec) // Convert Vec<u8> to Bytes
+                Bytes::from(new_data_vec), // Convert Vec<u8> to Bytes
+                &fs.config.server_url
             )
         );
 

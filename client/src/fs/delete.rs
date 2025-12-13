@@ -32,7 +32,7 @@ pub fn rmdir(fs: &mut RemoteFS, req: &Request<'_>, parent: u64, name: &OsStr, re
     };
 
     // Check if the directory is empty first
-    let entry_list = match fs.runtime.block_on(get_files_from_server(&fs.client, &full_path)) {
+    let entry_list = match fs.runtime.block_on(get_files_from_server(&fs.client, &full_path,  &fs.config.server_url)) {
         Ok(list) => list,
         Err(_) => {
             reply.error(EIO);
@@ -97,8 +97,7 @@ pub fn unlink(fs: &mut RemoteFS, _req: &Request<'_>, parent: u64, name: &OsStr, 
         }
     } else {
         // Handle single file deletion
-        let url = format!("http://localhost:8080/files/{}", full_path);
-        if fs.runtime.block_on(fs.client.delete(&url).send()).is_err() {
+        if fs.runtime.block_on(delete_resource(&fs.client, &full_path, &fs.config.server_url)).is_err() {
             reply.error(EIO);
             return;
         }
@@ -127,7 +126,7 @@ pub fn unlink(fs: &mut RemoteFS, _req: &Request<'_>, parent: u64, name: &OsStr, 
 /// * `Ok(())` on success.
 /// * `Err(libc::c_int)` with an error code (e.g., `EIO`) on failure.
 pub fn recursive_delete(fs: &mut RemoteFS, path: &str) -> Result<(), libc::c_int> {
-    let entry_list = match fs.runtime.block_on(get_files_from_server(&fs.client, path)) {
+    let entry_list = match fs.runtime.block_on(get_files_from_server(&fs.client, path,  &fs.config.server_url)) {
         Ok(list) => list,
         Err(_) => return Err(libc::EIO),
     };
@@ -138,16 +137,14 @@ pub fn recursive_delete(fs: &mut RemoteFS, path: &str) -> Result<(), libc::c_int
         if entry.kind == "directory" {
             recursive_delete(fs, &full_path)?;
         } else {
-            let url = format!("http://localhost:8080/files/{}", full_path);
-            if fs.runtime.block_on(fs.client.delete(&url).send()).is_err() {
+            if fs.runtime.block_on(delete_resource(&fs.client, &full_path, &fs.config.server_url)).is_err() {
                 return Err(libc::EIO);
             }
         }
     }
 
     // After children are gone, delete the directory itself
-    let url = format!("http://localhost:8080/files/{}", path);
-    if fs.runtime.block_on(fs.client.delete(&url).send()).is_err() {
+    if fs.runtime.block_on(delete_resource(&fs.client, path, &fs.config.server_url)).is_err() {
         return Err(libc::EIO);
     }
 

@@ -23,15 +23,14 @@ fn recursive_move_client_side(
 ) -> Result<(), libc::c_int> {
 
     // 1. Create the new destination directory
-    let mkdir_url = format!("http://localhost:8080/mkdir/{}", new_path);
-    if fs.runtime.block_on(fs.client.post(&mkdir_url).send()).is_err() {
+    if fs.runtime.block_on(create_directory(&fs.client, new_path, &fs.config.server_url)).is_err() {
         // This might fail if the dir already exists, but for a rename,
         // it should be a new path. We treat this as a critical error.
         return Err(EIO);
     }
 
     // 2. List the contents of the old directory
-    let entry_list = match fs.runtime.block_on(get_files_from_server(&fs.client, old_path)) {
+    let entry_list = match fs.runtime.block_on(get_files_from_server(&fs.client, old_path,  &fs.config.server_url)) {
         Ok(list) => list,
         Err(_) => return Err(EIO),
     };
@@ -46,24 +45,22 @@ fn recursive_move_client_side(
             recursive_move_client_side(fs, &old_child_path, &new_child_path)?;
         } else {
             // "Copy + Delete" logic for files
-            let content = match fs.runtime.block_on(get_file_content_from_server(&fs.client, &old_child_path)) {
+            let content = match fs.runtime.block_on(get_file_content_from_server(&fs.client, &old_child_path,  &fs.config.server_url)) {
                 Ok(c) => c,
                 Err(_) => return Err(ENOENT),
             };
-            if fs.runtime.block_on(put_file_content_to_server(&fs.client, &new_child_path, content)).is_err() {
+            if fs.runtime.block_on(put_file_content_to_server(&fs.client, &new_child_path, content,  &fs.config.server_url)).is_err() {
                 return Err(EIO);
             }
             // Delete the old file after successful copy
-            let delete_url = format!("http://localhost:8080/files/{}", old_child_path);
-            if fs.runtime.block_on(fs.client.delete(&delete_url).send()).is_err() {
+            if fs.runtime.block_on(delete_resource(&fs.client, &old_child_path, &fs.config.server_url)).is_err() {
                 return Err(EIO);
             }
         }
     }
 
     // 4. Delete the now-empty old directory
-    let delete_url = format!("http://localhost:8080/files/{}", old_path);
-    if fs.runtime.block_on(fs.client.delete(&delete_url).send()).is_err() {
+    if fs.runtime.block_on(delete_resource(&fs.client, old_path, &fs.config.server_url)).is_err() {
         return Err(EIO);
     }
 
@@ -150,19 +147,16 @@ pub fn rename(fs: &mut RemoteFS, _req: &Request<'_>, parent: u64, name: &OsStr, 
         }
     } else {
         // Use the original "Copy + Delete" logic for files
-        let content = match fs.runtime.block_on(get_file_content_from_server(&fs.client, &old_full_path)) {
+        let content = match fs.runtime.block_on(get_file_content_from_server(&fs.client, &old_full_path,  &fs.config.server_url)) {
             Ok(c) => c,
             Err(_) => { reply.error(ENOENT); return; }
         };
-        if fs.runtime.block_on(put_file_content_to_server(&fs.client, &new_full_path, content)).is_err() {
+        if fs.runtime.block_on(put_file_content_to_server(&fs.client, &new_full_path, content,  &fs.config.server_url)).is_err() {
             reply.error(EIO);
             return;
         }
         // Delete the old file
-        if fs.runtime.block_on(async {
-            let url = format!("http://localhost:8080/files/{}", old_full_path);
-            fs.client.delete(&url).send().await
-        }).is_err() {
+        if fs.runtime.block_on(delete_resource(&fs.client, &old_full_path, &fs.config.server_url)).is_err() {
             reply.error(EIO);
             return;
         }

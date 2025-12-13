@@ -40,7 +40,7 @@ pub fn create(
     };
 
     // 1. Create the empty file on the server immediately
-    if fs.runtime.block_on(put_file_content_to_server(&fs.client, &full_path, "".into())).is_err() {
+    if fs.runtime.block_on(put_file_content_to_server(&fs.client, &full_path, "".into(),  &fs.config.server_url)).is_err() {
         reply.error(EIO);
         return;
     }
@@ -112,10 +112,7 @@ pub fn mkdir(fs: &mut RemoteFS, _req: &Request<'_>, parent: u64, name: &OsStr, m
     };
 
     // Contact the server to create the directory
-    if fs.runtime.block_on(async {
-        let url = format!("http://localhost:8080/mkdir/{}", full_path);
-        fs.client.post(&url).send().await
-    }).is_err() {
+    if fs.runtime.block_on(create_directory(&fs.client, &full_path, &fs.config.server_url)).is_err() {
         reply.error(EIO);
         return;
     }

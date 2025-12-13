@@ -1,5 +1,4 @@
 use super::prelude::*;
-use serde_json::json;
 
 /// Fetches attributes for an Inode, using the cache if available.
 ///
@@ -40,7 +39,7 @@ pub fn fetch_and_cache_attributes(fs: &mut RemoteFS, ino: u64) -> Option<FileAtt
         None => ("".to_string(), path.clone()),
     };
 
-    let entries = match fs.runtime.block_on(get_files_from_server(&fs.client, &parent_path)) {
+    let entries = match fs.runtime.block_on(get_files_from_server(&fs.client, &parent_path,  &fs.config.server_url)) {
         Ok(list) => list,
         Err(_) => return None,
     };
@@ -102,14 +101,7 @@ pub fn setattr(fs: &mut RemoteFS, _req: &Request<'_>, ino: u64, mode: Option<u32
 
     // --- Handle `chmod` (mode change) ---
     if let Some(new_mode) = mode {
-        let perm_str = format!("{:o}", new_mode & 0o777);
-        let url = format!("http://localhost:8080/files/{}", path);
-        let payload = json!({ "perm": perm_str });
-
-        let res = fs.runtime.block_on(async {
-            fs.client.patch(&url).json(&payload).send().await
-        });
-
+        let res = fs.runtime.block_on(update_permissions(&fs.client, &path, new_mode, &fs.config.server_url));
         if res.is_err() {
             reply.error(EIO);
             return;
@@ -119,7 +111,7 @@ pub fn setattr(fs: &mut RemoteFS, _req: &Request<'_>, ino: u64, mode: Option<u32
     // --- Handle `truncate` (size change) ---
     // This is a "Read-Modify-Write" operation.
     if let Some(new_size) = size {
-        let old_content = match fs.runtime.block_on(get_file_content_from_server(&fs.client, &path)) {
+        let old_content = match fs.runtime.block_on(get_file_content_from_server(&fs.client, &path,  &fs.config.server_url)) {
             Ok(c) => c,
             Err(_) => "".into() // File might be new or empty
         };
@@ -129,7 +121,7 @@ pub fn setattr(fs: &mut RemoteFS, _req: &Request<'_>, ino: u64, mode: Option<u32
         // This is a potential bug: assumes file content is valid UTF-8.
         // `bytes` should be PUT directly.
         if let Ok(new_content_str) = String::from_utf8(bytes) {
-            if fs.runtime.block_on(put_file_content_to_server(&fs.client, &path, new_content_str.into())).is_err() {
+            if fs.runtime.block_on(put_file_content_to_server(&fs.client, &path, new_content_str.into(),  &fs.config.server_url)).is_err() {
                 reply.error(EIO);
                 return;
             }

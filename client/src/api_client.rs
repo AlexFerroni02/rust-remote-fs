@@ -8,6 +8,7 @@ use reqwest::Body;
 use reqwest::Client;
 use serde::Deserialize;
 use bytes::Bytes;
+use serde_json::json; // Aggiunto per gestire il JSON del metodo PATCH
 
 /// Represents a single file or directory entry returned by the server's `/list` endpoint.
 ///
@@ -43,11 +44,11 @@ type ClientResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 ///
 /// # Returns
 /// A `Result` containing a `Vec<RemoteEntry>` on success, or a `reqwest::Error`.
-pub async fn get_files_from_server(client: &Client, path: &str) -> Result<Vec<RemoteEntry>, reqwest::Error> {
+pub async fn get_files_from_server(client: &Client, path: &str, base_url: &str) -> Result<Vec<RemoteEntry>, reqwest::Error> {
     let url = if path.is_empty() {
-        "http://localhost:8080/list".to_string()
+        format!("{}/list", base_url)
     } else {
-        format!("http://localhost:8080/list/{}", path)
+        format!("{}/list/{}", base_url, path)
     };
     println!("API Client: requesting file list from {}", url);
     let response = client.get(&url).send().await?;
@@ -66,8 +67,8 @@ pub async fn get_files_from_server(client: &Client, path: &str) -> Result<Vec<Re
 ///
 /// # Returns
 /// A `ClientResult` containing the file's content as `Bytes` on success.
-pub async fn get_file_content_from_server(client: &Client, path: &str) -> ClientResult<Bytes> {
-    let url = format!("http://localhost:8080/files/{}", path);
+pub async fn get_file_content_from_server(client: &Client, path: &str, base_url: &str) -> ClientResult<Bytes> {
+    let url = format!("{}/files/{}", base_url, path);
     let response = client.get(&url).send().await?.error_for_status()?;
 
     // Reads the entire response body into memory as Bytes
@@ -89,13 +90,57 @@ pub async fn get_file_content_from_server(client: &Client, path: &str) -> Client
 ///
 /// # Returns
 /// A `ClientResult<()>` indicating success or failure.
-pub async fn put_file_content_to_server(client: &Client, path: &str, data: Bytes) -> ClientResult<()> {
-    let url = format!("http://localhost:8080/files/{}", path);
+pub async fn put_file_content_to_server(client: &Client, path: &str, data: Bytes, base_url: &str) -> ClientResult<()> {
+    let url = format!("{}/files/{}", base_url, path);
 
     // reqwest::Body can be created directly from Bytes
     let body = Body::from(data);
 
     // Send the PUT request and check for HTTP errors (4xx, 5xx)
     client.put(&url).body(body).send().await?.error_for_status()?;
+    Ok(())
+}
+
+/// Deletes a file or directory on the server via the `/files` endpoint.
+///
+/// This corresponds to `unlink` or `rmdir` operations.
+///
+/// # Arguments
+/// * `client` - The shared `reqwest::Client` instance.
+/// * `path` - The relative path of the resource to delete.
+pub async fn delete_resource(client: &Client, path: &str, base_url: &str) -> ClientResult<()> {
+    let url = format!("{}/files/{}", base_url, path);
+    client.delete(&url).send().await?.error_for_status()?;
+    Ok(())
+}
+
+/// Creates a new directory on the server via the `/mkdir` endpoint.
+///
+/// This corresponds to the `mkdir` operation.
+///
+/// # Arguments
+/// * `client` - The shared `reqwest::Client` instance.
+/// * `path` - The relative path of the directory to create.
+pub async fn create_directory(client: &Client, path: &str, base_url: &str) -> ClientResult<()> {
+    let url = format!("{}/mkdir/{}", base_url, path);
+    client.post(&url).send().await?.error_for_status()?;
+    Ok(())
+}
+
+/// Updates file permissions via a `PATCH` request to the `/files` endpoint.
+///
+/// This is used by `setattr` (chmod). It sends a JSON payload containing
+/// the new octal permission string (e.g., `{ "perm": "755" }`).
+///
+/// # Arguments
+/// * `client` - The shared `reqwest::Client` instance.
+/// * `path` - The relative path of the file.
+/// * `mode` - The new mode (u32) from which permissions are extracted.
+pub async fn update_permissions(client: &Client, path: &str, mode: u32, base_url: &str) -> ClientResult<()> {
+    let perm_str = format!("{:o}", mode & 0o777);
+    let url = format!("{}/files/{}", base_url, path);
+    let payload = json!({ "perm": perm_str });
+
+    client.patch(&url).json(&payload).send().await?.error_for_status()?;
     Ok(())
 }

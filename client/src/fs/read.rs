@@ -23,7 +23,7 @@ pub fn lookup(fs: &mut RemoteFS, _req: &Request, parent: u64, name: &OsStr, repl
         None => { reply.error(ENOENT); return; }
     };
 
-    let entry_list = match fs.runtime.block_on(get_files_from_server(&fs.client, &parent_path)) {
+    let entry_list = match fs.runtime.block_on(get_files_from_server(&fs.client, &parent_path, &fs.config.server_url)) {
         Ok(list) => list,
         Err(_) => { reply.error(ENOENT); return; }
     };
@@ -89,7 +89,7 @@ pub fn readdir(fs: &mut RemoteFS, _req: &Request, ino: u64, _fh: u64, offset: i6
 
     // Add server entries (only if we haven't finished with '.' and '..')
     if offset < 2 {
-        let entry_list = match fs.runtime.block_on(get_files_from_server(&fs.client, &dir_path)) {
+        let entry_list = match fs.runtime.block_on(get_files_from_server(&fs.client, &dir_path,  &fs.config.server_url)) {
             Ok(list) => list,
             Err(_) => { reply.ok(); return; } // Empty dir is fine
         };
@@ -136,7 +136,7 @@ pub fn read(fs: &mut RemoteFS, _req: &Request<'_>, ino: u64, _fh: u64, offset: i
 
         // Fetch the entire file content
         let content_result = fs.runtime.block_on(async {
-            get_file_content_from_server(&fs.client, file_path).await
+            get_file_content_from_server(&fs.client, file_path,  &fs.config.server_url).await
         });
 
         match content_result {

@@ -44,7 +44,10 @@ pub use crate::api_client::{
     self, // Allows using `api_client::function_name`
     put_file_content_to_server,
     get_file_content_from_server,
-    get_files_from_server
+    get_files_from_server,
+    delete_resource,
+    create_directory,
+    update_permissions
 };
 
 // --- Internal `fs` Module Types ---

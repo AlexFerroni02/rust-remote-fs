@@ -22,6 +22,8 @@ pub enum CacheStrategy {
 /// (what `AttributeCache` does) and the timeouts reported to the FUSE kernel.
 #[derive(Deserialize, Debug, Clone)]
 pub struct Config {
+    /// The URL of the remote filesystem server.
+    pub server_url: String,
     /// The strategy to use for the internal attribute cache.
     pub cache_strategy: CacheStrategy,
     /// Time-to-live in seconds for entries in the `Ttl` cache.
@@ -43,6 +45,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            server_url: "http://localhost:8080".to_string(),
             cache_strategy: CacheStrategy::Ttl,
             cache_ttl_seconds: 60,
             cache_lru_capacity: 1000,
