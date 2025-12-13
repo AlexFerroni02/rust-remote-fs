@@ -8,7 +8,7 @@ use reqwest::Body;
 use reqwest::Client;
 use serde::Deserialize;
 use bytes::Bytes;
-
+use reqwest::header::RANGE;
 /// Represents a single file or directory entry returned by the server's `/list` endpoint.
 ///
 /// This struct is deserialized directly from the server's JSON response.
@@ -60,9 +60,30 @@ pub async fn get_files_from_server(client: &Client, path: &str) -> Result<Vec<Re
 /// at once. The FUSE `read` handler is responsible for slicing this `Bytes` object
 /// to satisfy the kernel's specific offset and size request.
 ///
-/// # Arguments
-/// * `client` - The shared `reqwest::Client` instance.
-/// * `path` - The relative path of the file to read.
+/// # Argomenti
+/// * `start` - L'offset in byte da cui iniziare a leggere.
+/// * `size` - Il numero di byte da leggere.
+pub async fn get_file_range_from_server(client: &Client, path: &str, start: u64, size: u32) -> ClientResult<Bytes> {
+    let url = format!("http://localhost:8080/files/{}", path);
+
+    // Calcola il range finale (inclusivo)
+    // Nota: sottraiamo 1 perché il range è inclusivo (es. bytes=0-3 sono 4 byte)
+    let end = start + size as u64 - 1;
+    let range_header_val = format!("bytes={}-{}", start, end);
+
+    let response = client.get(&url)
+        .header(RANGE, range_header_val) // Header Magico per lo streaming
+        .send()
+        .await?
+        .error_for_status()?;
+
+    // Scarica SOLO il pezzettino richiesto, non tutto il file
+    let data = response.bytes().await?;
+
+    Ok(data)
+}
+
+/// Recupera l'intero contenuto di un file dall'endpoint `/files`.
 ///
 /// # Returns
 /// A `ClientResult` containing the file's content as `Bytes` on success.

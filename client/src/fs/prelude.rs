@@ -7,7 +7,7 @@
 // --- FUSE Types ---
 /// Re-exports all common FUSE types for filesystem operations and replies.
 pub use fuser::{
-    FileAttr, FileType, ReplyAttr, ReplyCreate, ReplyData,
+    FileAttr, FileType, Filesystem, ReplyAttr, ReplyCreate, ReplyData,
     ReplyDirectory, ReplyEntry, ReplyOpen, ReplyWrite, Request, ReplyEmpty,
     TimeOrNow,
 };
@@ -39,7 +39,8 @@ pub use crate::api_client::{
     self, // Allows using `api_client::function_name`
     put_file_content_to_server,
     get_file_content_from_server,
-    get_files_from_server
+    get_file_range_from_server,
+    get_files_from_server,
 };
 
 // --- Internal `fs` Module Types ---
@@ -49,4 +50,5 @@ pub use super::{
     OpenWriteFile, // The struct for the in-memory write cache
     TTL,           // The default Time-To-Live for kernel caches
     ROOT_DIR_ATTR, // The static attributes for the root directory
+    cache::AttributeCache
 };

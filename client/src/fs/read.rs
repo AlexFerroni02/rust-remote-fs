@@ -1,4 +1,5 @@
 use super::prelude::*;
+use super::attr; // Importa il modulo fratello 'attr' per lookup
 
 /// Handles the FUSE `lookup` operation.
 ///
@@ -41,7 +42,7 @@ pub fn lookup(fs: &mut RemoteFS, _req: &Request, parent: u64, name: &OsStr, repl
         });
 
         // Get attributes (from cache or server) and reply
-        if let Some(attr) = crate::fs::attr::fetch_and_cache_attributes(fs, inode) {
+        if let Some(attr) = attr::fetch_and_cache_attributes(fs, inode) {
             reply.entry(&TTL, &attr, 0);
         } else {
             reply.error(ENOENT);
@@ -136,23 +137,17 @@ pub fn read(fs: &mut RemoteFS, _req: &Request<'_>, ino: u64, _fh: u64, offset: i
 
         // Fetch the entire file content
         let content_result = fs.runtime.block_on(async {
-            get_file_content_from_server(&fs.client, file_path).await
+            get_file_range_from_server(&fs.client, file_path, offset as u64, size).await
         });
 
         match content_result {
             Ok(content) => {
-                // Slice the content based on the request
-                let content_bytes = &content;
-                let start = offset as usize;
-                if start >= content_bytes.len() {
-                    reply.data(&[]); // Offset is beyond the end of the file
-                    return;
-                }
-                let end = std::cmp::min(start + size as usize, content_bytes.len());
-                reply.data(&content_bytes[start..end]);
+                // Il server ci ha mandato esattamente i byte richiesti (o meno se EOF).
+                // Passiamo i byte direttamente a FUSE senza dover fare slicing locale.
+                reply.data(&content);
             },
             Err(_) => {
-                reply.error(ENOENT);
+                reply.error(EIO);
             }
         }
     } else {
