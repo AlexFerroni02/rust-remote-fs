@@ -1,7 +1,8 @@
 use std::sync::{Arc, Mutex};
 use fuser::{
     FileAttr, FileType, Filesystem, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEntry,
-    ReplyOpen, ReplyWrite, Request, ReplyEmpty
+    ReplyOpen, ReplyWrite, Request, ReplyEmpty,
+    ReplyXattr
 };
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -20,6 +21,7 @@ mod write;
 mod create;
 mod delete;
 mod rename;
+mod xattr;
 
 /// Default Time-To-Live (TTL) for FUSE kernel attribute/entry caches.
 pub const TTL: Duration = Duration::from_secs(5);
@@ -53,7 +55,7 @@ pub struct RemoteFS {
     /// The Tokio `Runtime` used to execute asynchronous API calls (`block_on`).
     pub(crate) runtime: tokio::runtime::Runtime,
     /// Maps an Inode number (u64) to its full path string (e.g., 1 -> "").
-    pub(crate) client_id: String, 
+    pub(crate) client_id: String,
     pub(crate) inode_to_path: HashMap<u64, String>,
     /// Maps a full path string to its Inode number (e.g., "" -> 1).
     pub(crate) path_to_inode: HashMap<String, u64>,
@@ -91,9 +93,9 @@ impl RemoteFS {
             .default_headers(headers)
             .build()
             .unwrap();
-        
+
         let mut fs = Self {
-            client, // <--- CORRETTO: Usiamo il client configurato sopra!
+            client,
             client_id,
             runtime,
             inode_to_path: HashMap::new(),
@@ -118,6 +120,7 @@ impl RemoteFS {
 
 #[derive(Clone)]
 pub struct FsWrapper(pub Arc<Mutex<RemoteFS>>);
+
 /// Main FUSE trait implementation.
 ///
 /// This block acts as a simple "dispatcher" or "router". All FUSE kernel
@@ -218,5 +221,27 @@ impl Filesystem for FsWrapper {
     fn rename(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr, flags: u32, reply: ReplyEmpty) {
         let mut fs = self.0.lock().unwrap();
         rename::rename(&mut fs, req, parent, name, newparent, newname, flags, reply);
+    }
+
+    // --- XATTR Operations (xattr.rs) [macOS Support] ---
+
+    fn getxattr(&mut self, req: &Request, ino: u64, name: &OsStr, size: u32, reply: ReplyXattr) {
+        let mut fs = self.0.lock().unwrap();
+        xattr::getxattr(&mut fs, req, ino, name, size, reply);
+    }
+
+    fn setxattr(&mut self, req: &Request, ino: u64, name: &OsStr, value: &[u8], flags: i32, position: u32, reply: ReplyEmpty) {
+        let mut fs = self.0.lock().unwrap();
+        xattr::setxattr(&mut fs, req, ino, name, value, flags, position, reply);
+    }
+
+    fn listxattr(&mut self, req: &Request, ino: u64, size: u32, reply: ReplyXattr) {
+        let mut fs = self.0.lock().unwrap();
+        xattr::listxattr(&mut fs, req, ino, size, reply);
+    }
+
+    fn removexattr(&mut self, req: &Request, ino: u64, name: &OsStr, reply: ReplyEmpty) {
+        let mut fs = self.0.lock().unwrap();
+        xattr::removexattr(&mut fs, req, ino, name, reply);
     }
 }

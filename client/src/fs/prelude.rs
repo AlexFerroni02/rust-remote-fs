@@ -10,16 +10,22 @@ pub use fuser::{
     FileAttr, FileType, ReplyAttr, ReplyCreate, ReplyData,
     ReplyDirectory, ReplyEntry, ReplyOpen, ReplyWrite, Request, ReplyEmpty,
     TimeOrNow,
+    // --- MACOS ---
+    ReplyXattr, ReplyLseek
 };
 
 // --- LibC Error Codes ---
 /// Re-exports standard `libc` error codes used to reply to FUSE.
 pub use libc::{
-    EIO,       // Input/output error (generic failure)
-    ENOENT,    // No such file or directory
-    EBADF,     // Bad file descriptor (invalid file handle)
-    ENOTEMPTY, // Directory not empty
+    EIO,     // Errore I/O
+    ENOENT,  // File/Dir non trovata
+    EBADF,   // Bad file descriptor
+    ENOTEMPTY, // Directory non vuota
 };
+#[cfg(not(target_os = "macos"))]
+pub use libc::ENODATA;
+#[cfg(target_os = "macos")]
+pub use libc::ENOATTR;
 
 // --- Standard Library Types ---
 /// Re-exports common types from the Rust standard library.
@@ -30,7 +36,6 @@ pub use std::time::{Duration, SystemTime, UNIX_EPOCH};
 // --- External Crate Types ---
 /// Re-exports `Bytes` for efficient byte buffer handling.
 pub use bytes::Bytes;
-/// Re-exports the `serde_json` crate, primarily for the `json!` macro.
 pub use serde_json;
 
 // --- Internal Project Modules ---
