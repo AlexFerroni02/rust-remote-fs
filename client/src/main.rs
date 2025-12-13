@@ -67,10 +67,16 @@ fn main() {
 }
 
 async fn connect_and_watch(fs_arc: Arc<Mutex<RemoteFS>>) {
-    // L'URL deve essere corretto. Assicurati che il server sia su localhost:8080
     let url_str = "ws://localhost:8080/ws";
     let url = Url::parse(url_str).expect("URL WebSocket non valido");
     
+    // Recuperiamo il nostro ID client per filtrare i messaggi
+    let my_client_id = {
+        let fs = fs_arc.lock().unwrap();
+        fs.client_id.clone()
+    };
+    println!("[WATCHER_CLIENT] Il mio Client ID è: {}", my_client_id);
+
     println!("[WATCHER_CLIENT] Avvio loop di connessione verso {}", url_str);
 
     loop {
@@ -83,20 +89,40 @@ async fn connect_and_watch(fs_arc: Arc<Mutex<RemoteFS>>) {
                     match message {
                         Ok(Message::Text(text)) => {
                             println!("[WATCHER_CLIENT] Ricevuta notifica: {}", text);
-                            if let Some(path_str) = text.strip_prefix("CHANGE:") {
-                                // Blocca il mutex per accedere allo stato del filesystem
-                                // Nota: Questo blocco è breve e sicuro.
+                            
+                            // --- LOGICA ECHO SUPPRESSION ---
+                            let (clean_text, sender_id) = if let Some((msg, id)) = text.rsplit_once("|BY:") {
+                                (msg, Some(id))
+                            } else {
+                                (text.as_str(), None)
+                            };
+
+                            if let Some(id) = sender_id {
+                                if id == my_client_id {
+                                    println!("[WATCHER_CLIENT] Ignoro notifica (Echo Suppression): modifica fatta da me.");
+                                    continue;
+                                }
+                            }
+                            // -------------------------------
+
+                            if let Some(path_str) = clean_text.strip_prefix("CHANGE:") {
                                 let mut fs = fs_arc.lock().unwrap();
                                 
+                                // 1. INVALIDIAMO IL FILE STESSO (Se esiste in cache)
+                                // Questo era il pezzo mancante!
+                                if let Some(&ino) = fs.path_to_inode.get(path_str) {
+                                    println!("[WATCHER_CLIENT] Invalido cache per FILE: {} (inode {})", path_str, ino);
+                                    fs.attribute_cache.remove(&ino);
+                                }
+
+                                // 2. INVALIDIAMO LA CARTELLA PADRE
+                                // Serve per aggiornare la lista dei file e l'mtime della cartella
                                 let parent_path = std::path::Path::new(path_str)
                                     .parent()
                                     .map_or("".to_string(), |p| p.to_string_lossy().to_string());
                                 
-                                // Copia l'inode per rilasciare il borrow su fs
-                                let ino_to_invalidate = fs.path_to_inode.get(&parent_path).copied();
-
-                                if let Some(parent_ino) = ino_to_invalidate {
-                                    println!("[WATCHER_CLIENT] Invalido la cache per la directory '{}' (inode {})", parent_path, parent_ino);
+                                if let Some(&parent_ino) = fs.path_to_inode.get(&parent_path) {
+                                    println!("[WATCHER_CLIENT] Invalido cache per PARENT: {} (inode {})", parent_path, parent_ino);
                                     fs.attribute_cache.remove(&parent_ino);
                                 }
                             }

@@ -1,11 +1,3 @@
-//! This module is the root of the FUSE filesystem implementation.
-//!
-//! It defines the main `RemoteFS` state struct, which holds all filesystem
-//! caches (attributes, paths, open files) and the asynchronous Tokio runtime.
-//!
-//! The `impl Filesystem` block acts as the primary dispatcher, receiving
-//! calls from the FUSE kernel and forwarding them to the appropriate
-//! sub-modules (`attr`, `read`, `write`, etc.) for processing.
 use std::sync::{Arc, Mutex};
 use fuser::{
     FileAttr, FileType, Filesystem, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEntry,
@@ -13,7 +5,8 @@ use fuser::{
 };
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, UNIX_EPOCH, SystemTime};
+use reqwest::header::{HeaderMap, HeaderValue};
 use crate::config::Config;
 use crate::fs::cache::AttributeCache;
 
@@ -60,6 +53,7 @@ pub struct RemoteFS {
     /// The Tokio `Runtime` used to execute asynchronous API calls (`block_on`).
     pub(crate) runtime: tokio::runtime::Runtime,
     /// Maps an Inode number (u64) to its full path string (e.g., 1 -> "").
+    pub(crate) client_id: String, 
     pub(crate) inode_to_path: HashMap<u64, String>,
     /// Maps a full path string to its Inode number (e.g., "" -> 1).
     pub(crate) path_to_inode: HashMap<String, u64>,
@@ -85,8 +79,22 @@ impl RemoteFS {
     /// and populates the maps with the root directory (inode 1).
     pub fn new(config: Config) -> Self {
         let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+        // 1. Genera un ID univoco basato sul tempo (semplice ed efficace)
+        let client_id = format!("client-{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos());
+        println!("[CLIENT] ID Sessione generato: {}", client_id);
+
+        // 2. Configura reqwest per inviare SEMPRE questo ID nell'header X-Client-ID
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Client-ID", HeaderValue::from_str(&client_id).unwrap());
+
+        let client = reqwest::Client::builder()
+            .default_headers(headers)
+            .build()
+            .unwrap();
+        
         let mut fs = Self {
-            client: reqwest::Client::new(),
+            client, // <--- CORRETTO: Usiamo il client configurato sopra!
+            client_id,
             runtime,
             inode_to_path: HashMap::new(),
             path_to_inode: HashMap::new(),

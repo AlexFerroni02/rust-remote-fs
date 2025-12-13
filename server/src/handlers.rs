@@ -1,10 +1,10 @@
 use axum::{
-    extract::Path,
+    extract::{Path, State},
     body::Body,
-    http::StatusCode,
+    http::{StatusCode, HeaderMap},
     Json,
 };
-use std::time::UNIX_EPOCH;
+use std::time::{UNIX_EPOCH, Instant};
 use std::os::unix::fs::PermissionsExt;
 use std::fs;
 use serde::{Deserialize, Serialize};
@@ -12,10 +12,16 @@ use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tokio_util::io::ReaderStream;
 use http_body_util::BodyExt;
-use hyper::body::Frame;
+use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+use tokio::sync::broadcast;
 
-/// Represents a single file or directory entry returned by the `/list` endpoint.
-/// This is serialized to JSON for the client.
+#[derive(Clone)]
+pub struct AppState {
+    pub tx: Arc<broadcast::Sender<String>>,
+    pub recent_mods: Arc<Mutex<HashMap<String, (String, Instant)>>>,
+}
+
 #[derive(Serialize,Deserialize)]
 pub struct RemoteEntry {
     name: String,
@@ -25,16 +31,30 @@ pub struct RemoteEntry {
     perm: String,
 }
 
-/// Represents the JSON payload for a `PATCH` request to change permissions.
-/// The `perm` field is expected to be an octal string (e.g., "755").
 #[derive(Deserialize)]
 pub struct UpdatePermissions {
     perm: String,
 }
 
-/// Defines the root directory on the server where all remote files are stored.
-/// It's set to a `data` subdirectory within the project's root.
 pub const DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/data");
+
+// --- DEBUGGING HELPER ---
+fn record_change(state: &AppState, path: &str, headers: &HeaderMap) {
+    // Proviamo a cercare l'header in modo case-insensitive (più sicuro)
+    let client_id_opt = headers.get("X-Client-ID")
+        .or_else(|| headers.get("x-client-id"))
+        .and_then(|v| v.to_str().ok());
+
+    if let Some(client_id) = client_id_opt {
+        let mut map = state.recent_mods.lock().unwrap();
+        println!("[DEBUG SERVER] Registro modifica: Path='{}' Client='{}'", path, client_id);
+        map.insert(path.to_string(), (client_id.to_string(), Instant::now()));
+    } else {
+        println!("[DEBUG SERVER] ATTENZIONE: Nessun X-Client-ID trovato negli header per path '{}'", path);
+        // Stampa tutti gli header per debug
+        println!("[DEBUG SERVER] Header ricevuti: {:?}", headers);
+    }
+}
 
 /// Handles `GET /files/<path>`.
 ///
@@ -48,13 +68,13 @@ pub const DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/data");
 /// # Returns
 /// * `Ok(Body)` containing the file's data stream on success.
 /// * `Err(StatusCode::NOT_FOUND)` if the file does not exist.
+
 pub async fn get_file(Path(path): Path<String>) -> Result<Body, StatusCode> {
     let file_path = format!("{}/{}",DATA_DIR, path);
     let file = File::open(&file_path).await.map_err(|_| StatusCode::NOT_FOUND)?;
     let stream = ReaderStream::new(file);
     Ok(Body::from_stream(stream))
 }
-
 /// Handles `PUT /files/<path>`.
 ///
 /// Receives a streaming request body from the client and writes the data
@@ -70,31 +90,33 @@ pub async fn get_file(Path(path): Path<String>) -> Result<Body, StatusCode> {
 /// * `StatusCode::OK` on success.
 /// * `StatusCode::INTERNAL_SERVER_ERROR` if creating or writing the file fails.
 /// * `StatusCode::BAD_REQUEST` if the request body stream is invalid.
-pub async fn put_file(Path(path): Path<String>, mut body: Body) -> StatusCode {
+
+pub async fn put_file(
+    State(state): State<AppState>,
+    Path(path): Path<String>, 
+    headers: HeaderMap, 
+    mut body: Body
+) -> StatusCode {
+    record_change(&state, &path, &headers);
     let file_path = format!("{}/{}", DATA_DIR, path);
     let mut file = match File::create(&file_path).await {
         Ok(f) => f,
         Err(_) => return StatusCode::INTERNAL_SERVER_ERROR,
     };
 
-    // Stream the body chunk by chunk
     while let Some(result) = body.frame().await {
         let frame = match result {
             Ok(frame) => frame,
-            Err(_) => return StatusCode::BAD_REQUEST, // Error streaming the request body
+            Err(_) => return StatusCode::BAD_REQUEST,
         };
-
-        // Write the data frame to the file
         if let Some(data) = frame.data_ref() {
             if file.write_all(data).await.is_err() {
                 return StatusCode::INTERNAL_SERVER_ERROR;
             }
         }
     }
-
     StatusCode::OK
 }
-
 /// Handles `GET /list` and `GET /list/<path>`.
 ///
 /// Lists the contents of a directory specified by the optional `path`.
@@ -110,7 +132,6 @@ pub async fn put_file(Path(path): Path<String>, mut body: Body) -> StatusCode {
 /// * `Ok(Json<Vec<RemoteEntry>>)` with the list of directory entries.
 /// * `Err(StatusCode::NOT_FOUND)` if the specified directory does not exist.
 pub async fn list_directory_contents(path: Option<Path<String>>) -> Result<Json<Vec<RemoteEntry>>, StatusCode> {
-    // Determine the relative path
     let relative_path = path.map_or("".to_string(), |Path(p)| p);
     let full_path =  format!("{}/{}",DATA_DIR, relative_path);
 
@@ -123,19 +144,10 @@ pub async fn list_directory_contents(path: Option<Path<String>>) -> Result<Json<
     for entry_result in read_dir {
         if let Ok(entry) = entry_result {
             if let Ok(metadata) = entry.metadata() {
-                // Extract real metadata from the file
                 let kind = if metadata.is_dir() { "directory".to_string() } else { "file".to_string() };
-
-                let mtime = metadata.modified()
-                    .unwrap_or(UNIX_EPOCH)
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs() as i64;
-
-                // Convert permissions to octal format (e.g., "755")
+                let mtime = metadata.modified().unwrap_or(UNIX_EPOCH).duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
                 let perm = format!("{:o}", metadata.permissions().mode() & 0o777);
 
-                // Create the object to send
                 entries.push(RemoteEntry {
                     name: entry.file_name().to_string_lossy().to_string(),
                     kind,
@@ -146,10 +158,8 @@ pub async fn list_directory_contents(path: Option<Path<String>>) -> Result<Json<
             }
         }
     }
-
     Ok(Json(entries))
 }
-
 /// Handles `POST /mkdir/<path>`.
 ///
 /// Creates a new directory (and any necessary parent directories, like `mkdir -p`)
@@ -161,14 +171,18 @@ pub async fn list_directory_contents(path: Option<Path<String>>) -> Result<Json<
 /// # Returns
 /// * `StatusCode::OK` on success.
 /// * `StatusCode::INTERNAL_SERVER_ERROR` if directory creation fails.
-pub async fn mkdir(Path(path): Path<String>) -> StatusCode {
+pub async fn mkdir(
+    State(state): State<AppState>,
+    Path(path): Path<String>,
+    headers: HeaderMap
+) -> StatusCode {
+    record_change(&state, &path, &headers);
     let dir_path =  format!("{}/{}",DATA_DIR, path);
     match fs::create_dir_all(&dir_path) {
         Ok(_) => StatusCode::OK,
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }
-
 /// Handles `DELETE /files/<path>`.
 ///
 /// Deletes a file or directory at the specified path.
@@ -182,25 +196,28 @@ pub async fn mkdir(Path(path): Path<String>) -> StatusCode {
 /// * `StatusCode::OK` on success.
 /// * `StatusCode::NOT_FOUND` if the path does not exist.
 /// * `StatusCode::INTERNAL_SERVER_ERROR` if the deletion fails.
-pub async fn delete_file(Path(path): Path<String>) -> StatusCode {
+pub async fn delete_file(
+    State(state): State<AppState>,
+    Path(path): Path<String>,
+    headers: HeaderMap
+) -> StatusCode {
+    record_change(&state, &path, &headers);
     let file_path =  format!("{}/{}",DATA_DIR, path);
     if let Ok(meta) = fs::metadata(&file_path) {
-        if meta.is_dir() {
-            match fs::remove_dir_all(&file_path) {
-                Ok(_) => StatusCode::OK,
-                Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            }
+        let res = if meta.is_dir() {
+            fs::remove_dir_all(&file_path)
         } else {
-            match fs::remove_file(&file_path) {
-                Ok(_) => StatusCode::OK,
-                Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            }
+            fs::remove_file(&file_path)
+        };
+
+        match res {
+            Ok(_) => StatusCode::OK,
+            Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     } else {
         StatusCode::NOT_FOUND
     }
 }
-
 /// Handles `PATCH /files/<path>`.
 ///
 /// Updates the file permissions (mode) of a file or directory.
@@ -215,20 +232,24 @@ pub async fn delete_file(Path(path): Path<String>) -> StatusCode {
 /// * `StatusCode::BAD_REQUEST` if the octal string in the payload is invalid.
 /// * `StatusCode::NOT_FOUND` if the path does not exist.
 /// * `StatusCode::INTERNAL_SERVER_ERROR` if setting permissions fails.
-pub async fn patch_file(Path(path): Path<String>, Json(payload): Json<UpdatePermissions>) -> StatusCode {
-    let file_path = format!("{}/{}", DATA_DIR, path);
 
-    // Convert permissions from octal string to u32
+pub async fn patch_file(
+    State(state): State<AppState>,
+    Path(path): Path<String>, 
+    headers: HeaderMap,
+    Json(payload): Json<UpdatePermissions>
+) -> StatusCode {
+    record_change(&state, &path, &headers);
+    let file_path = format!("{}/{}", DATA_DIR, path);
     let mode = match u32::from_str_radix(&payload.perm, 8) {
         Ok(m) => m,
         Err(_) => return StatusCode::BAD_REQUEST,
     };
 
-    // Read current permissions and set the new ones
     match fs::metadata(&file_path) {
         Ok(metadata) => {
             let mut perms = metadata.permissions();
-            perms.set_mode(mode); // Set the new permissions
+            perms.set_mode(mode);
             if fs::set_permissions(&file_path, perms).is_ok() {
                 StatusCode::OK
             } else {

@@ -64,14 +64,20 @@ pub fn create(
     fs.open_files.insert(fh, open_file);
 
     // 5. Create and cache stub attributes
+    let ts = SystemTime::now();
     let attrs = FileAttr {
-        ino: inode, size: 0, blocks: 0, atime: SystemTime::now(), mtime: SystemTime::now(),
-        ctime: SystemTime::now(), crtime: SystemTime::now(), kind: FileType::RegularFile,
+        ino: inode, size: 0, blocks: 0, atime: ts, mtime: ts,
+        ctime: ts, crtime: ts, kind: FileType::RegularFile,
         perm: mode as u16, nlink: 1, uid: req.uid(), gid: req.gid(), rdev: 0, flags: 0, blksize: 5120,
     };
 
     let ttl = Duration::from_secs(fs.config.cache_ttl_seconds);
+    
+    // CACHE IMMEDIATA: Salviamo il nuovo file
     fs.attribute_cache.put(inode, attrs.clone(), ttl);
+
+    // INVALIDAZIONE PADRE: La cartella contenitore è cambiata
+    fs.attribute_cache.remove(&parent);
 
     // 6. Reply to the kernel with the new file handle (fh)
     reply.created(&TTL, &attrs, 0, fh, 0);
@@ -122,14 +128,23 @@ pub fn mkdir(fs: &mut RemoteFS, _req: &Request<'_>, parent: u64, name: &OsStr, m
     fs.inode_to_type.insert(inode, FileType::Directory);
 
     // Create and cache stub attributes
+    let ts = SystemTime::now();
     let attrs = FileAttr {
-        ino: inode, size: 0, blocks: 0, atime: SystemTime::now(), mtime: SystemTime::now(),
-        ctime: SystemTime::now(), crtime: SystemTime::now(), kind: FileType::Directory,
+        ino: inode, 
+        size: 4096, // CORRETTO: Dimensione standard directory Linux
+        blocks: 8,  // 4096 / 512 = 8 blocchi
+        atime: ts, mtime: ts,
+        ctime: ts, crtime: ts, kind: FileType::Directory,
         perm: mode as u16, nlink: 2, uid: 501, gid: 20, rdev: 0, flags: 0, blksize: 5120,
     };
 
     let ttl = Duration::from_secs(fs.config.cache_ttl_seconds);
+    
+    // CACHE IMMEDIATA: Salviamo la nuova cartella con i dati corretti
     fs.attribute_cache.put(inode, attrs.clone(), ttl);
+
+    // INVALIDAZIONE PADRE: La cartella contenitore è cambiata
+    fs.attribute_cache.remove(&parent);
 
     // Reply with the new entry
     reply.entry(&TTL, &attrs, 0);

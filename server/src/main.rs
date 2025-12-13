@@ -5,6 +5,7 @@
 //! All route logic is forwarded to functions in the `handlers` module.
 
 // Declares the module containing all HTTP request handlers.
+
 mod handlers;
 
 use axum::{
@@ -15,18 +16,15 @@ use axum::{
 };
 use futures_util::{sink::SinkExt, stream::StreamExt};
 use notify::{RecursiveMode, Watcher};
-use std::sync::Arc;
+use std::{collections::HashMap, sync::{Arc, Mutex}};
 use tokio::sync::broadcast;
 use std::net::SocketAddr;
 use std::fs;
-use handlers::*; // Import all handlers from the handlers module
+use std::time::{Duration, Instant};
+use handlers::*; 
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-// --- STATE FOR  WEBSOCKET ---
-#[derive(Clone)]
-struct AppState {
-    tx: Arc<broadcast::Sender<String>>,
-}
+
 #[tokio::main]
 async fn main() {
     // Ensure the data directory exists.
@@ -34,7 +32,6 @@ async fn main() {
     if let Err(e) = fs::create_dir_all(manifest_dir.to_owned() + "/data"){
         println!("Warning: Could not create data directory: {}", e);
     }
-
     // Initialize the logging and tracing subscriber.
     // Uses `RUST_LOG` env var or defaults to "server=debug,tower_http=debug".
     tracing_subscriber::registry()
@@ -44,17 +41,49 @@ async fn main() {
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
-    // --- LOGICA DEL WATCHER E WEBSOCKET ---
+         // --- LOGICA DEL WATCHER E WEBSOCKET ---
     let (tx, _) = broadcast::channel(100);
-    let app_state = AppState { tx: Arc::new(tx) };
+    let recent_mods = Arc::new(Mutex::new(HashMap::new()));
+   
+    let app_state = AppState { 
+        tx: Arc::new(tx),
+        recent_mods: recent_mods.clone(),
+    };
 
     let watcher_tx = app_state.tx.clone();
+    let watcher_mods = recent_mods.clone();
+
     tokio::spawn(async move {
         let mut watcher = match notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
             if let Ok(event) = res {
                 for path in event.paths {
                     if let Ok(relative_path) = path.strip_prefix(DATA_DIR) {
-                        let msg = format!("CHANGE:{}", relative_path.to_string_lossy());
+                        let path_str = relative_path.to_string_lossy().to_string();
+                        
+                        // --- LOGICA DI FIRMA CON DEBUG ---
+                         let mut source_tag = String::new();
+                        {
+                            let mut mods = watcher_mods.lock().unwrap();
+                            
+                            // DECOMMENTA QUESTA RIGA:
+                            println!("[DEBUG WATCHER] Cerco chiave '{}' nella mappa...", path_str);
+                            
+                            if let Some((client_id, time)) = mods.get(&path_str) {
+                                if time.elapsed() < Duration::from_millis(500) {
+                                    source_tag = format!("|BY:{}", client_id);
+                                    println!("[DEBUG WATCHER] TROVATO! Modifica di {}", client_id);
+                                } else {
+                                    println!("[DEBUG WATCHER] Trovato ma SCADUTO (>500ms)");
+                                }
+                            } else {
+                                // DECOMMENTA QUESTA RIGA:
+                                println!("[DEBUG WATCHER] Chiave '{}' NON trovata. Chiavi presenti: {:?}", path_str, mods.keys());
+                            }
+                            
+                            mods.retain(|_, (_, t)| t.elapsed() < Duration::from_secs(5));
+                        }
+                        
+                        let msg = format!("CHANGE:{}{}", path_str, source_tag);
                         println!("[WATCHER] Rilevato cambiamento: {}", msg);
                         let _ = watcher_tx.send(msg);
                     }
@@ -76,10 +105,9 @@ async fn main() {
         println!("[WATCHER] Watcher del filesystem avviato sulla directory: {}", DATA_DIR);
         std::future::pending::<()>().await;
     });
-
     // Define the application's routes.
     let app = Router::new()
-        // A simple health check endpoint.
+    // A simple health check endpoint.
         .route("/health", get(|| async { "OK" }))
         .route("/ws", get(websocket_handler))
         // Routes for listing directory contents.
@@ -87,22 +115,16 @@ async fn main() {
         // are handled by the same `list_directory_contents` handler.
         .route("/list", get(list_directory_contents))
         .route("/list/*path", get(list_directory_contents))
-
-        // Route for creating a new directory.
+         // Route for creating a new directory.
         .route("/mkdir/*path", post(mkdir))
-
         // Routes for file operations (Read, Write, Delete, Chmod).
         // All file-based operations are grouped under the `/files/` path.
         .route("/files/*path", get(get_file).put(put_file).delete(delete_file).patch(patch_file))
-
         // Apply a logging layer to trace all HTTP requests.
         .layer(TraceLayer::new_for_http())
         .with_state(app_state);
 
-    // Bind the server to the loopback address on port 8080.
     let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
-
-    // Start the Axum server.
     tracing::debug!("listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
