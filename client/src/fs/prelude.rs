@@ -47,7 +47,8 @@ pub use crate::api_client::{
     get_files_from_server,
     delete_resource,
     create_directory,
-    update_permissions
+    update_permissions,
+    get_file_chunk_from_server
 };
 
 // --- Internal `fs` Module Types ---

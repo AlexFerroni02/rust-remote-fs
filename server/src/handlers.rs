@@ -1,9 +1,13 @@
 use axum::{
     extract::{Path, State},
     body::Body,
-    http::{StatusCode, HeaderMap},
+    http::{StatusCode, HeaderMap, header},
+    response::{IntoResponse, Response},
     Json,
 };
+use tokio::io::AsyncSeekExt;
+use tokio::io::AsyncReadExt;
+use std::io::SeekFrom;
 use std::time::{UNIX_EPOCH, Instant};
 use std::os::unix::fs::PermissionsExt;
 use std::fs;
@@ -69,11 +73,63 @@ fn record_change(state: &AppState, path: &str, headers: &HeaderMap) {
 /// * `Ok(Body)` containing the file's data stream on success.
 /// * `Err(StatusCode::NOT_FOUND)` if the file does not exist.
 
-pub async fn get_file(Path(path): Path<String>) -> Result<Body, StatusCode> {
-    let file_path = format!("{}/{}",DATA_DIR, path);
-    let file = File::open(&file_path).await.map_err(|_| StatusCode::NOT_FOUND)?;
+/// Handles `GET /files/<path>`.
+///
+/// Supports HTTP Range Requests (RFC 7233) for chunked reading.
+pub async fn get_file(
+    Path(path): Path<String>,
+    headers: HeaderMap
+) -> Result<impl IntoResponse, StatusCode> {
+    let file_path = format!("{}/{}", DATA_DIR, path);
+
+    let mut file = File::open(&file_path).await.map_err(|_| StatusCode::NOT_FOUND)?;
+    let metadata = file.metadata().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let file_size = metadata.len();
+
+    // Check for Range header
+    if let Some(range_header) = headers.get(header::RANGE).and_then(|h| h.to_str().ok()) {
+        // Simple parser for "bytes=start-end"
+        if let Some(range_str) = range_header.strip_prefix("bytes=") {
+            let parts: Vec<&str> = range_str.split('-').collect();
+            if parts.len() == 2 {
+                let start_parse = parts[0].parse::<u64>();
+                let end_parse = parts[1].parse::<u64>();
+
+                if let (Ok(start), Ok(end)) = (start_parse, end_parse) {
+                    if start < file_size && end < file_size && start <= end {
+                        // 1. Seek to start
+                        file.seek(SeekFrom::Start(start)).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+                        // 2. Calculate length to read
+                        let content_length = end - start + 1;
+
+                        // 3. Limit the stream
+                        let limited_file = file.take(content_length);
+                        let stream = ReaderStream::new(limited_file);
+                        let body = Body::from_stream(stream);
+
+                        // 4. Return 206 Partial Content
+                        return Ok(Response::builder()
+                            .status(StatusCode::PARTIAL_CONTENT)
+                            .header(header::CONTENT_RANGE, format!("bytes {}-{}/{}", start, end, file_size))
+                            .header(header::CONTENT_LENGTH, content_length.to_string())
+                            .header(header::ACCEPT_RANGES, "bytes")
+                            .body(body)
+                            .unwrap());
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback: Full file (200 OK) if no Range header or invalid range
     let stream = ReaderStream::new(file);
-    Ok(Body::from_stream(stream))
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_LENGTH, file_size.to_string())
+        .header(header::ACCEPT_RANGES, "bytes")
+        .body(Body::from_stream(stream))
+        .unwrap())
 }
 /// Handles `PUT /files/<path>`.
 ///

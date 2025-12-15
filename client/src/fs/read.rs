@@ -136,23 +136,21 @@ pub fn read(fs: &mut RemoteFS, _req: &Request<'_>, ino: u64, _fh: u64, offset: i
 
         // Fetch the entire file content
         let content_result = fs.runtime.block_on(async {
-            get_file_content_from_server(&fs.client, file_path,  &fs.config.server_url).await
+            get_file_chunk_from_server(
+                &fs.client,
+                file_path,
+                offset as u64,
+                size,
+                &fs.config.server_url
+            ).await
         });
 
         match content_result {
             Ok(content) => {
-                // Slice the content based on the request
-                let content_bytes = &content;
-                let start = offset as usize;
-                if start >= content_bytes.len() {
-                    reply.data(&[]); // Offset is beyond the end of the file
-                    return;
-                }
-                let end = std::cmp::min(start + size as usize, content_bytes.len());
-                reply.data(&content_bytes[start..end]);
+                reply.data(&content);
             },
             Err(_) => {
-                reply.error(ENOENT);
+                reply.error(EIO);
             }
         }
     } else {

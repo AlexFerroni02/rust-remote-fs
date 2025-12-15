@@ -144,3 +144,50 @@ pub async fn update_permissions(client: &Client, path: &str, mode: u32, base_url
     client.patch(&url).json(&payload).send().await?.error_for_status()?;
     Ok(())
 }
+
+/// Fetches a specific byte range of a file (Partial Content).
+///
+/// This uses the HTTP `Range` header to request only a specific chunk of data.
+/// It is much more memory efficient than `get_file_content_from_server`.
+///
+/// # Arguments
+/// * `offset` - The start byte position.
+/// * `size` - The number of bytes to read.
+pub async fn get_file_chunk_from_server(client: &Client, path: &str, offset: u64, size: u32, base_url: &str) -> ClientResult<Bytes> {
+    let url = format!("{}/files/{}", base_url, path);
+
+    // Calculate the end byte (inclusive)
+    let end = offset + (size as u64) - 1;
+    let range_header_val = format!("bytes={}-{}", offset, end);
+
+    println!("[API] Requesting chunk: {} (Range: {})", path, range_header_val);
+
+    let response = client.get(&url)
+        .header("Range", range_header_val)
+        .send()
+        .await?
+        .error_for_status()?;
+
+    // Check status code:
+    // 206 Partial Content = Server supports ranges (Good).
+    // 200 OK = Server ignored Range header and sent full file (Fallback).
+    if response.status() == 206 {
+        let data = response.bytes().await?;
+        Ok(data)
+    } else {
+        // Fallback: The server sent the whole file. We must slice it manually here.
+        // This is inefficient but safe.
+        println!("[API] WARN: Server returned 200 OK instead of 206. Downloading full file.");
+        let full_data = response.bytes().await?;
+        let start = offset as usize;
+        let requested_len = size as usize;
+
+        if start >= full_data.len() {
+            return Ok(Bytes::new()); // EOF
+        }
+
+        let available_len = std::cmp::min(requested_len, full_data.len() - start);
+        let chunk = full_data.slice(start..(start + available_len));
+        Ok(chunk)
+    }
+}
