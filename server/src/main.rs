@@ -20,7 +20,7 @@ use std::{collections::HashMap, sync::{Arc, Mutex}};
 use tokio::sync::broadcast;
 use std::net::SocketAddr;
 use std::fs;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use handlers::*; 
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
