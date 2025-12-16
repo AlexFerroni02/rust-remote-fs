@@ -1,0 +1,11 @@
+# The URL of the remote server (without trailing slash)
+server_url = "http://localhost:8080"
+
+# Internal attribute cache strategy. Possible values: "ttl", "lru", "none"
+cache_strategy = "ttl"
+
+# How long (in seconds) the internal cache remains valid (only if strategy = "ttl")
+cache_ttl_seconds = 60
+
+# Maximum number of items in the cache (only if strategy = "lru")
+cache_lru_capacity = 1000
