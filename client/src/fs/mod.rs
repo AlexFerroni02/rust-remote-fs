@@ -24,7 +24,7 @@ mod rename;
 mod xattr;
 
 /// Default Time-To-Live (TTL) for FUSE kernel attribute/entry caches.
-pub const TTL: Duration = Duration::from_secs(5);
+pub const TTL: Duration = Duration::from_secs(1);
 /// Static, hardcoded attributes for the root directory (inode 1).
 pub const ROOT_DIR_ATTR: FileAttr = FileAttr {
     ino: 1, size: 0, blocks: 0, atime: UNIX_EPOCH, mtime: UNIX_EPOCH, ctime: UNIX_EPOCH,

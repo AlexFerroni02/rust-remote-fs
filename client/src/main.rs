@@ -18,43 +18,69 @@ use std::sync::{Arc, Mutex};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use url::Url;
 use futures_util::StreamExt;
-
+use clap::Parser;
+use crate::config::CacheStrategy;
 // NOTA: Non usiamo #[tokio::main] qui perché FUSE deve girare su un thread sincrono,
 // mentre block_on verrebbe chiamato all'interno di un contesto async, causando il panico.
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    /// Il punto di mount per il filesystem.
+    mountpoint: String,
+
+    /// Sovrascrive la strategia di cache (ttl, lru, none).
+    #[arg(long, value_enum)]
+    cache_strategy: Option<CacheStrategy>,
+
+    /// Sovrascrive il TTL della cache in secondi (usato con --cache-strategy=ttl).
+    #[arg(long)]
+    cache_ttl_seconds: Option<u64>,
+
+    /// Sovrascrive la capacità della cache LRU (usato con --cache-strategy=lru).
+    #[arg(long)]
+    cache_lru_capacity: Option<usize>,
+}
 fn main() {
-    // 1. Load configuration
-    let config = config::load_config();
-    println!("Configuration loaded: {:?}", config);
+    // 1. Leggi gli argomenti da riga di comando
+    let cli = Cli::parse();
 
-    // 2. Parse mountpoint
-    let mountpoint = match env::args_os().nth(1) {
-        Some(path) => path,
-        None => {
-            eprintln!("Usage: {} <MOUNTPOINT>", env::args().next().unwrap());
-            return;
-        }
-    };
+    // 2. Carica la configurazione di base dal file config.toml
+    let mut config = config::load_config();
+    println!("Configurazione da file: {:?}", config);
 
-    // 3. Crea l'istanza di RemoteFS.
-    // RemoteFS::new crea internamente il SUO runtime per le chiamate API.
+    // 3. Sovrascrivi i valori con gli argomenti della CLI, se forniti
+    if let Some(strategy) = cli.cache_strategy {
+        config.cache_strategy = strategy;
+        println!("INFO: Strategia cache sovrascritta da CLI: {:?}", strategy);
+    }
+    if let Some(ttl) = cli.cache_ttl_seconds {
+        config.cache_ttl_seconds = ttl;
+        println!("INFO: TTL cache sovrascritto da CLI: {}s", ttl);
+    }
+    if let Some(capacity) = cli.cache_lru_capacity {
+        config.cache_lru_capacity = capacity;
+        println!("INFO: Capacità LRU sovrascritta da CLI: {}", capacity);
+    }
+    
+    println!("Configurazione finale: {:?}", config);
+
+    // 4. Prendi il mountpoint dalla CLI
+    let mountpoint = std::ffi::OsString::from(cli.mountpoint);
+
+    // 5. Crea l'istanza di RemoteFS con la configurazione finale
     let fs_inner = RemoteFS::new(config.clone());
     let fs_wrapper = FsWrapper(Arc::new(Mutex::new(fs_inner)));
 
-    // 4. Avvia il watcher.
-    // Poiché non siamo in un runtime Tokio globale, dobbiamo creare un runtime
-    // dedicato SOLO per il watcher, oppure usare un thread separato che avvia un runtime.
-    // Qui usiamo un thread standard che crea un runtime "usa e getta" per il watcher.
+    // 6. Avvia il watcher in un thread separato
     let fs_clone_for_watcher = fs_wrapper.0.clone();
     std::thread::spawn(move || {
-        // Creiamo un runtime locale solo per questo thread del watcher
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             connect_and_watch(fs_clone_for_watcher).await;
         });
     });
 
-    // 5. Monta il filesystem (Bloccante, Sincrono)
-    // Questo deve girare sul thread principale libero da contesti async.
+    // 7. Monta il filesystem (bloccante)
     let filesystem = fs_wrapper;
     let options = vec![
         MountOption::AutoUnmount,
