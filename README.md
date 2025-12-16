@@ -359,3 +359,16 @@ dos2unix client/tests/run-tests.sh client/tests/cases/*.sh
 ```
 
 sed -i 's/\r$//' ./client/tests/cases/test_apassed_new.sh
+
+## COMMAND FOR THE CACHE 
+
+cargo run -- /tmp/mountpoint --cache-strategy none
+
+cargo run -- /tmp/mountpoint --cache-strategy lru --cache-lru-capacity 3
+touch file1.txt file2.txt file3.txt file4.txt
+ls 
+stat file1.txt
+stat file2.txt
+stat file3.txt
+
+cargo run -- /tmp/mountpoint --cache-strategy ttl --cache-ttl-seconds 5
