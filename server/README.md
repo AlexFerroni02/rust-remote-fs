@@ -53,7 +53,6 @@ Ecco l'analisi delle librerie utilizzate nel `Cargo.toml` e il motivo della loro
 * **`serde`** (`1.0.219`): Framework di serializzazione. Usato per convertire automaticamente le struct Rust (come `RemoteEntry`) in JSON per le risposte API.
 * **`futures-util`** (`0.3`): Fornisce metodi estesi (`split`, `next`) per lavorare con gli stream, fondamentali per gestire il ciclo di vita delle connessioni WebSocket.
 
-
 ---
 
 ###  Dettaglio Struttura SERVER (`server/`)
