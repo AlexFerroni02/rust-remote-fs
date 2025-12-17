@@ -13,20 +13,25 @@ mod fs;
 
 use fs::{RemoteFS, FsWrapper};
 use fuser::MountOption;
-use std::env;
 use std::sync::{Arc, Mutex};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use url::Url;
 use futures_util::StreamExt;
 use clap::Parser;
 use crate::config::CacheStrategy;
-// NOTA: Non usiamo #[tokio::main] qui perché FUSE deve girare su un thread sincrono,
-// mentre block_on verrebbe chiamato all'interno di un contesto async, causando il panico.
+use daemonize::Daemonize; 
+use std::fs::File;
+
+// NOTA: Non usiamo #[tokio::main] qui perché FUSE deve girare su un thread sincrono.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
     /// Il punto di mount per il filesystem.
     mountpoint: String,
+
+    /// Esegui il processo come demone in background.
+    #[arg(long)]
+    daemon: bool,
 
     /// Sovrascrive la strategia di cache (ttl, lru, none).
     #[arg(long, value_enum)]
@@ -40,6 +45,7 @@ struct Cli {
     #[arg(long)]
     cache_lru_capacity: Option<usize>,
 }
+
 fn main() {
     // 1. Leggi gli argomenti da riga di comando
     let cli = Cli::parse();
@@ -63,6 +69,28 @@ fn main() {
     }
     
     println!("Configurazione finale: {:?}", config);
+    let should_daemonize = cli.daemon || config.daemon;
+    // Deve essere eseguita PRIMA di spawnare qualsiasi thread (watcher) o creare connessioni.
+    if should_daemonize {
+        let stdout = File::create("/tmp/fuse_client.out").unwrap();
+        let stderr = File::create("/tmp/fuse_client.err").unwrap();
+
+        let daemonize = Daemonize::new()
+            .pid_file("/tmp/fuse_client.pid") // Crea file PID per gestire il processo
+            .chown_pid_file(true)
+            .working_directory("/") // Buona norma per i demoni
+            .stdout(stdout)  // Redireziona stdout su file
+            .stderr(stderr); // Redireziona stderr su file
+
+        match daemonize.start() {
+            Ok(_) => println!("Success, daemonized"),
+            Err(e) => {
+                eprintln!("Error, {}", e);
+                std::process::exit(1);
+            }
+        }
+    }
+    // --------------------------------
 
     // 4. Prendi il mountpoint dalla CLI
     let mountpoint = std::ffi::OsString::from(cli.mountpoint);
@@ -72,6 +100,7 @@ fn main() {
     let fs_wrapper = FsWrapper(Arc::new(Mutex::new(fs_inner)));
 
     // 6. Avvia il watcher in un thread separato
+    // (IMPORTANTE: Questo thread viene creato DOPO il daemonize, quindi sopravvive nel processo figlio)
     let fs_clone_for_watcher = fs_wrapper.0.clone();
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -85,7 +114,10 @@ fn main() {
     let options = vec![
         MountOption::AutoUnmount,
         MountOption::FSName("remoteFS".to_string()),
+        MountOption::RW, 
+        // MountOption::Debug, // Utile, ma ricorda che l'output va su file se sei in daemon mode
     ];
+    
     println!("Mounting filesystem at {:?}", mountpoint);
     if let Err(e) = fuser::mount2(filesystem, &mountpoint, &options) {
         eprintln!("Failed to mount filesystem: {}", e);
@@ -93,16 +125,17 @@ fn main() {
 }
 
 async fn connect_and_watch(fs_arc: Arc<Mutex<RemoteFS>>) {
-    let url_str = "ws://localhost:8080/ws";
-    let url = Url::parse(url_str).expect("URL WebSocket non valido");
-    
-    // Recuperiamo il nostro ID client per filtrare i messaggi
-    let my_client_id = {
+    // Recuperiamo URL e ID Client proteggendo l'accesso con il lock
+    let (url_str, my_client_id) = {
         let fs = fs_arc.lock().unwrap();
-        fs.client_id.clone()
+        // Costruiamo l'URL WS basandoci sulla config HTTP (es. http://... -> ws://...)
+        let base = fs.config.server_url.replace("https://", "wss://").replace("http://", "ws://");
+        (format!("{}/ws", base), fs.client_id.clone())
     };
-    println!("[WATCHER_CLIENT] Il mio Client ID è: {}", my_client_id);
 
+    let url = Url::parse(&url_str).expect("URL WebSocket non valido");
+    
+    println!("[WATCHER_CLIENT] Il mio Client ID è: {}", my_client_id);
     println!("[WATCHER_CLIENT] Avvio loop di connessione verso {}", url_str);
 
     loop {
@@ -114,8 +147,6 @@ async fn connect_and_watch(fs_arc: Arc<Mutex<RemoteFS>>) {
                 while let Some(message) = read.next().await {
                     match message {
                         Ok(Message::Text(text)) => {
-                            println!("[WATCHER_CLIENT] Ricevuta notifica: {}", text);
-                            
                             // --- LOGICA ECHO SUPPRESSION ---
                             let (clean_text, sender_id) = if let Some((msg, id)) = text.rsplit_once("|BY:") {
                                 (msg, Some(id))
@@ -125,30 +156,29 @@ async fn connect_and_watch(fs_arc: Arc<Mutex<RemoteFS>>) {
 
                             if let Some(id) = sender_id {
                                 if id == my_client_id {
-                                    println!("[WATCHER_CLIENT] Ignoro notifica (Echo Suppression): modifica fatta da me.");
+                                    // Ignora le notifiche generate da noi stessi
                                     continue;
                                 }
                             }
                             // -------------------------------
 
                             if let Some(path_str) = clean_text.strip_prefix("CHANGE:") {
+                                println!("[WATCHER_CLIENT] Notifica rilevante per: {}", path_str);
                                 let mut fs = fs_arc.lock().unwrap();
                                 
                                 // 1. INVALIDIAMO IL FILE STESSO (Se esiste in cache)
-                                // Questo era il pezzo mancante!
                                 if let Some(&ino) = fs.path_to_inode.get(path_str) {
-                                    println!("[WATCHER_CLIENT] Invalido cache per FILE: {} (inode {})", path_str, ino);
+                                    println!("[WATCHER_CLIENT] -> Invalido cache FILE (inode {})", ino);
                                     fs.attribute_cache.remove(&ino);
                                 }
 
                                 // 2. INVALIDIAMO LA CARTELLA PADRE
-                                // Serve per aggiornare la lista dei file e l'mtime della cartella
                                 let parent_path = std::path::Path::new(path_str)
                                     .parent()
                                     .map_or("".to_string(), |p| p.to_string_lossy().to_string());
                                 
                                 if let Some(&parent_ino) = fs.path_to_inode.get(&parent_path) {
-                                    println!("[WATCHER_CLIENT] Invalido cache per PARENT: {} (inode {})", parent_path, parent_ino);
+                                    println!("[WATCHER_CLIENT] -> Invalido cache PARENT (inode {})", parent_ino);
                                     fs.attribute_cache.remove(&parent_ino);
                                 }
                             }

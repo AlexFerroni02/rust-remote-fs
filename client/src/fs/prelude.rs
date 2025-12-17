@@ -11,7 +11,7 @@ pub use fuser::{
     ReplyDirectory, ReplyEntry, ReplyOpen, ReplyWrite, Request, ReplyEmpty,
     TimeOrNow,
     // --- MACOS ---
-    ReplyXattr, ReplyLseek
+    ReplyXattr
 };
 
 // --- LibC Error Codes ---
@@ -36,7 +36,6 @@ pub use std::time::{Duration, SystemTime, UNIX_EPOCH};
 // --- External Crate Types ---
 /// Re-exports `Bytes` for efficient byte buffer handling.
 pub use bytes::Bytes;
-pub use serde_json;
 
 // --- Internal Project Modules ---
 /// Re-exports the API client functions for server communication.
