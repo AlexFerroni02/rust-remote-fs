@@ -9,3 +9,5 @@ cache_ttl_seconds = 60
 
 # Maximum number of items in the cache (only if strategy = "lru")
 cache_lru_capacity = 1000
+
+daemon = true

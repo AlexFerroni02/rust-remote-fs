@@ -29,6 +29,8 @@ pub struct Config {
     pub cache_ttl_seconds: u64,
     /// The maximum number of entries for the `Lru` cache.
     pub cache_lru_capacity: usize,
+    #[serde(default)] // Se manca nel TOML, usa il valore di default (false)
+    pub daemon: bool,
 }
 
 /// Provides a sane default configuration.
@@ -42,6 +44,7 @@ impl Default for Config {
             cache_strategy: CacheStrategy::Ttl,
             cache_ttl_seconds: 60,
             cache_lru_capacity: 1000,
+            daemon: false,
         }
     }
 }
