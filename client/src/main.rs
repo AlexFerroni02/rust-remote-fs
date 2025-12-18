@@ -22,7 +22,6 @@ use crate::config::CacheStrategy;
 use daemonize::Daemonize; 
 use std::fs::File;
 
-// NOTA: Non usiamo #[tokio::main] qui perché FUSE deve girare su un thread sincrono.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Cli {

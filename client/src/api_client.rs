@@ -8,7 +8,7 @@ use reqwest::Body;
 use reqwest::Client;
 use serde::Deserialize;
 use bytes::Bytes;
-use serde_json::json; // Aggiunto per gestire il JSON del metodo PATCH
+use serde_json::json;
 
 /// Represents a single file or directory entry returned by the server's `/list` endpoint.
 ///
