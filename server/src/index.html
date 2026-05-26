@@ -1,0 +1,1324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🛰️ Rust Remote FS - Live Dashboard</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --panel-bg: rgba(17, 24, 39, 0.7);
+            --panel-border: rgba(255, 255, 255, 0.08);
+            --text-primary: #f3f4f6;
+            --text-secondary: #9ca3af;
+            --accent-blue: #3b82f6;
+            --accent-blue-glow: rgba(59, 130, 246, 0.35);
+            --accent-cyan: #06b6d4;
+            --accent-green: #10b981;
+            --accent-green-glow: rgba(16, 185, 129, 0.2);
+            --accent-red: #ef4444;
+            --accent-red-glow: rgba(239, 68, 68, 0.2);
+            --accent-purple: #8b5cf6;
+            --accent-purple-glow: rgba(139, 92, 246, 0.2);
+            --card-hover: rgba(255, 255, 255, 0.03);
+            --terminal-bg: #060913;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.12) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, rgba(139, 92, 246, 0.1) 0px, transparent 50%),
+                radial-gradient(at 50% 100%, rgba(6, 182, 212, 0.07) 0px, transparent 50%);
+            color: var(--text-primary);
+            font-family: 'Outfit', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.2);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.25);
+        }
+
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1.5rem 2rem;
+            border-bottom: 1px solid var(--panel-border);
+            backdrop-filter: blur(12px);
+            background: rgba(11, 15, 25, 0.5);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .logo-container {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .logo-icon {
+            font-size: 2rem;
+            animation: pulse-slow 3s infinite alternate;
+        }
+
+        .logo-text h1 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #fff 0%, var(--text-secondary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.025em;
+        }
+
+        .logo-text span {
+            font-size: 0.75rem;
+            color: var(--accent-blue);
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 9999px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--panel-border);
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--text-secondary);
+        }
+
+        .status-dot.connected {
+            background-color: var(--accent-green);
+            box-shadow: 0 0 10px var(--accent-green);
+            animation: blink 1.5s infinite;
+        }
+
+        .status-dot.disconnected {
+            background-color: var(--accent-red);
+            box-shadow: 0 0 10px var(--accent-red);
+        }
+
+        .status-dot.connecting {
+            background-color: var(--accent-blue);
+            box-shadow: 0 0 10px var(--accent-blue);
+            animation: blink 0.8s infinite;
+        }
+
+        .app-container {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            flex-grow: 1;
+            height: calc(100vh - 73px);
+            overflow: hidden;
+        }
+
+        @media (max-width: 1024px) {
+            .app-container {
+                grid-template-columns: 1fr;
+                grid-template-rows: 1fr 300px;
+                height: auto;
+                overflow: visible;
+            }
+        }
+
+        /* File Explorer Column */
+        .explorer-section {
+            display: flex;
+            flex-direction: column;
+            padding: 2rem;
+            overflow-y: auto;
+            height: 100%;
+        }
+
+        .explorer-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .breadcrumbs {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 1rem;
+            font-weight: 500;
+        }
+
+        .breadcrumb-item {
+            color: var(--accent-blue);
+            cursor: pointer;
+            transition: color 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .breadcrumb-item:hover {
+            color: #60a5fa;
+            text-decoration: underline;
+        }
+
+        .breadcrumb-separator {
+            color: var(--text-secondary);
+        }
+
+        .breadcrumb-current {
+            color: var(--text-primary);
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 0.75rem;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.625rem 1.25rem;
+            border-radius: 8px;
+            font-weight: 500;
+            font-size: 0.875rem;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 1px solid transparent;
+            font-family: inherit;
+        }
+
+        .btn-primary {
+            background-color: var(--accent-blue);
+            color: white;
+            box-shadow: 0 4px 14px var(--accent-blue-glow);
+        }
+
+        .btn-primary:hover {
+            background-color: #2563eb;
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background-color: rgba(255, 255, 255, 0.05);
+            border-color: var(--panel-border);
+            color: var(--text-primary);
+        }
+
+        .btn-secondary:hover {
+            background-color: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.15);
+            transform: translateY(-1px);
+        }
+
+        .btn-danger {
+            background-color: rgba(239, 68, 68, 0.15);
+            border-color: rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+        }
+
+        .btn-danger:hover {
+            background-color: var(--accent-red);
+            border-color: var(--accent-red);
+            color: white;
+            box-shadow: 0 4px 12px var(--accent-red-glow);
+        }
+
+        /* Drag & Drop Upload Zone */
+        .upload-zone {
+            border: 2px dashed rgba(59, 130, 246, 0.3);
+            background: rgba(59, 130, 246, 0.02);
+            border-radius: 12px;
+            padding: 2.5rem;
+            text-align: center;
+            margin-bottom: 2rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .upload-zone:hover, .upload-zone.dragover {
+            border-color: var(--accent-blue);
+            background: rgba(59, 130, 246, 0.05);
+            box-shadow: inset 0 0 20px rgba(59, 130, 246, 0.05);
+        }
+
+        .upload-icon {
+            font-size: 2rem;
+            color: var(--accent-blue);
+            margin-bottom: 0.75rem;
+        }
+
+        .upload-text {
+            font-size: 0.95rem;
+            color: var(--text-secondary);
+        }
+
+        .upload-text strong {
+            color: var(--text-primary);
+        }
+
+        /* File List Table Container */
+        .explorer-card {
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 12px;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            backdrop-filter: blur(16px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .files-table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        .files-table th {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid var(--panel-border);
+            color: var(--text-secondary);
+            font-weight: 600;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .files-table td {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            font-size: 0.95rem;
+            vertical-align: middle;
+        }
+
+        .files-table tbody tr {
+            transition: background 0.15s ease;
+        }
+
+        .files-table tbody tr:hover {
+            background-color: var(--card-hover);
+        }
+
+        .file-name-cell {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-weight: 500;
+            cursor: pointer;
+        }
+
+        .file-icon {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+        }
+
+        .type-badge {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .type-badge.dir {
+            background-color: rgba(59, 130, 246, 0.15);
+            color: #93c5fd;
+        }
+
+        .type-badge.file {
+            background-color: rgba(6, 182, 212, 0.15);
+            color: #67e8f9;
+        }
+
+        .actions-cell {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-end;
+        }
+
+        .action-icon-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 0.35rem;
+            border-radius: 6px;
+            transition: all 0.15s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .action-icon-btn:hover {
+            color: var(--text-primary);
+            background-color: rgba(255, 255, 255, 0.08);
+        }
+
+        .action-icon-btn.btn-delete:hover {
+            color: var(--accent-red);
+            background-color: rgba(239, 68, 68, 0.15);
+        }
+
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 4rem 2rem;
+            color: var(--text-secondary);
+            text-align: center;
+        }
+
+        .empty-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+
+        /* Sidebar: Live Terminal Console */
+        .sidebar-section {
+            border-left: 1px solid var(--panel-border);
+            background-color: var(--terminal-bg);
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        @media (max-width: 1024px) {
+            .sidebar-section {
+                border-left: none;
+                border-top: 1px solid var(--panel-border);
+                height: 300px;
+            }
+        }
+
+        .terminal-header {
+            padding: 1.25rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(0, 0, 0, 0.3);
+        }
+
+        .terminal-title {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: 600;
+            font-size: 0.9rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: var(--accent-cyan);
+        }
+
+        .terminal-clear-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+
+        .terminal-clear-btn:hover {
+            color: var(--text-primary);
+            text-decoration: underline;
+        }
+
+        .terminal-console {
+            flex-grow: 1;
+            padding: 1.25rem;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.8rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            line-height: 1.4;
+            background: linear-gradient(180deg, var(--terminal-bg) 0%, rgba(4, 6, 12, 0.95) 100%);
+        }
+
+        .terminal-row {
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.01);
+            border-left: 3px solid var(--text-secondary);
+            animation: fade-in 0.25s ease-out;
+            word-break: break-all;
+        }
+
+        .terminal-row.client-change {
+            border-left-color: var(--accent-purple);
+            background: rgba(139, 92, 246, 0.03);
+        }
+
+        .terminal-row.web-change {
+            border-left-color: var(--accent-green);
+            background: rgba(16, 185, 129, 0.03);
+        }
+
+        .terminal-row.system {
+            border-left-color: var(--accent-blue);
+            color: #93c5fd;
+        }
+
+        .terminal-time {
+            color: #556080;
+            margin-right: 0.5rem;
+        }
+
+        .terminal-badge {
+            font-size: 0.7rem;
+            padding: 0.05rem 0.25rem;
+            border-radius: 3px;
+            font-weight: 600;
+            margin-right: 0.5rem;
+            display: inline-block;
+        }
+
+        .terminal-badge.sys {
+            background-color: rgba(59, 130, 246, 0.2);
+            color: #60a5fa;
+        }
+        .terminal-badge.fuse {
+            background-color: rgba(139, 92, 246, 0.2);
+            color: #c084fc;
+        }
+        .terminal-badge.web {
+            background-color: rgba(16, 185, 129, 0.2);
+            color: #34d399;
+        }
+
+        /* Visual Modals */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(6px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-container {
+            background: #111827;
+            border: 1px solid var(--panel-border);
+            border-radius: 14px;
+            width: 90%;
+            max-width: 650px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+            transform: scale(0.95);
+            transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .modal-overlay.active .modal-container {
+            transform: scale(1);
+        }
+
+        .modal-header {
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid var(--panel-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .modal-close-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 1.25rem;
+            cursor: pointer;
+            transition: color 0.15s;
+        }
+
+        .modal-close-btn:hover {
+            color: var(--text-primary);
+        }
+
+        .modal-body {
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .input-group label {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .form-input {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            color: var(--text-primary);
+            font-family: inherit;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .form-input:focus {
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+        }
+
+        .editor-textarea {
+            width: 100%;
+            height: 300px;
+            background: #030712;
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            padding: 1rem;
+            color: #34d399;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            resize: vertical;
+            outline: none;
+        }
+
+        .editor-textarea:focus {
+            border-color: var(--accent-cyan);
+        }
+
+        .modal-footer {
+            padding: 1.25rem 1.5rem;
+            border-top: 1px solid var(--panel-border);
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.75rem;
+            background: rgba(0, 0, 0, 0.1);
+        }
+
+        /* Toast Notifications */
+        .toast-container {
+            position: fixed;
+            bottom: 2rem;
+            left: 2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            z-index: 999;
+            max-width: 380px;
+        }
+
+        .toast {
+            background: rgba(17, 24, 39, 0.9);
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            padding: 1rem 1.25rem;
+            color: var(--text-primary);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            backdrop-filter: blur(12px);
+            animation: slide-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            transition: all 0.3s ease;
+        }
+
+        .toast.success {
+            border-left: 4px solid var(--accent-green);
+        }
+
+        .toast.info {
+            border-left: 4px solid var(--accent-blue);
+        }
+
+        .toast.error {
+            border-left: 4px solid var(--accent-red);
+        }
+
+        .toast-icon {
+            font-size: 1.25rem;
+        }
+
+        .toast-content {
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        /* Animations */
+        @keyframes pulse-slow {
+            0% { transform: scale(1); filter: drop-shadow(0 0 0px rgba(59, 130, 246, 0)); }
+            100% { transform: scale(1.05); filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.3)); }
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        @keyframes fade-in {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes slide-in {
+            from { opacity: 0; transform: translateX(-30px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo-container">
+            <span class="logo-icon">🛰️</span>
+            <div class="logo-text">
+                <h1>Rust Remote Filesystem</h1>
+                <span>Live Admin Control Panel</span>
+            </div>
+        </div>
+        <div class="status-badge">
+            <div id="ws-status-dot" class="status-dot disconnected"></div>
+            <span id="ws-status-text">Disconnected</span>
+        </div>
+    </header>
+
+    <div class="app-container">
+        <!-- Main Explorer Section -->
+        <div class="explorer-section">
+            <div class="explorer-toolbar">
+                <div class="breadcrumbs" id="breadcrumbs-container">
+                    <span class="breadcrumb-item" onclick="navigatePath('')">📁 Root</span>
+                </div>
+                <div class="action-buttons">
+                    <button class="btn btn-secondary" onclick="fetchFiles()">🔄 Refresh</button>
+                    <button class="btn btn-secondary" onclick="openNewFolderModal()">➕ New Folder</button>
+                    <button class="btn btn-primary" onclick="document.getElementById('hidden-file-input').click()">📤 Upload File</button>
+                    <input type="file" id="hidden-file-input" style="display: none;" multiple onchange="handleFileSelect(event)">
+                </div>
+            </div>
+
+            <!-- Upload Dropzone -->
+            <div class="upload-zone" id="dropzone" ondragover="event.preventDefault(); this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="handleDrop(event)">
+                <div class="upload-icon">📥</div>
+                <div class="upload-text">Drag and drop files here or <strong>click upload</strong> to add them to this directory</div>
+            </div>
+
+            <!-- Files Table -->
+            <div class="explorer-card">
+                <table class="files-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Size</th>
+                            <th>Modified</th>
+                            <th>Perms</th>
+                            <th style="text-align: right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="files-list">
+                        <!-- Populated by JS -->
+                    </tbody>
+                </table>
+                <div id="empty-state" class="empty-state" style="display: none;">
+                    <div class="empty-icon">📁</div>
+                    <p>This directory is empty</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar Stream Console -->
+        <div class="sidebar-section">
+            <div class="terminal-header">
+                <div class="terminal-title">
+                    <span>📟 Live System Event Feed</span>
+                </div>
+                <button class="terminal-clear-btn" onclick="clearTerminal()">Clear</button>
+            </div>
+            <div class="terminal-console" id="terminal-log">
+                <div class="terminal-row system">
+                    <span class="terminal-time">[System]</span>
+                    <span class="terminal-badge sys">SYS</span>
+                    Connecting live event stream...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <!-- Create Folder Modal -->
+    <div class="modal-overlay" id="folder-modal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h3 class="modal-title">Create New Folder</h3>
+                <button class="modal-close-btn" onclick="closeModal('folder-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="input-group">
+                    <label for="new-folder-name">Folder Name</label>
+                    <input type="text" id="new-folder-name" class="form-input" placeholder="e.g., documents, media...">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('folder-modal')">Cancel</button>
+                <button class="btn btn-primary" onclick="createNewFolder()">Create Folder</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Text File Editor Modal -->
+    <div class="modal-overlay" id="editor-modal">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h3 class="modal-title" id="editor-file-title">Edit File</h3>
+                <button class="modal-close-btn" onclick="closeModal('editor-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <textarea id="editor-content" class="editor-textarea"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('editor-modal')">Close</button>
+                <button class="btn btn-primary" id="editor-save-btn">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div class="toast-container" id="toasts"></div>
+
+    <script>
+        const CLIENT_ID = 'WEB_DASHBOARD_' + Math.random().toString(36).substring(2, 7).toUpperCase();
+        let currentPath = '';
+        let socket = null;
+
+        // Inizializzazione
+        window.addEventListener('load', () => {
+            fetchFiles();
+            setupWebSocket();
+        });
+
+        // Breadcrumbs & Navigazione
+        function navigatePath(path) {
+            currentPath = path;
+            updateBreadcrumbs();
+            fetchFiles();
+        }
+
+        function updateBreadcrumbs() {
+            const container = document.getElementById('breadcrumbs-container');
+            container.innerHTML = `<span class="breadcrumb-item" onclick="navigatePath('')">📁 Root</span>`;
+            
+            if (!currentPath) return;
+
+            const parts = currentPath.split('/').filter(p => p);
+            let accumulatedPath = '';
+            
+            parts.forEach((part, index) => {
+                accumulatedPath += (index === 0 ? '' : '/') + part;
+                const pathSnapshot = accumulatedPath;
+                container.innerHTML += `
+                    <span class="breadcrumb-separator">/</span>
+                    <span class="breadcrumb-item" onclick="navigatePath('${pathSnapshot}')">${part}</span>
+                `;
+            });
+        }
+
+        // Fetching Files listing
+        async function fetchFiles() {
+            const listUrl = `/list` + (currentPath ? `/${currentPath}` : '');
+            const listContainer = document.getElementById('files-list');
+            const emptyState = document.getElementById('empty-state');
+            
+            try {
+                const response = await fetch(listUrl);
+                if (!response.ok) throw new Error('Failed to retrieve contents.');
+                
+                const files = await response.json();
+                listContainer.innerHTML = '';
+                
+                if (files.length === 0) {
+                    emptyState.style.display = 'flex';
+                    return;
+                }
+                
+                emptyState.style.display = 'none';
+
+                // Sort: Directories first, then alphabetically
+                files.sort((a, b) => {
+                    if (a.kind === 'directory' && b.kind !== 'directory') return -1;
+                    if (a.kind !== 'directory' && b.kind === 'directory') return 1;
+                    return a.name.localeCompare(b.name);
+                });
+
+                files.forEach(file => {
+                    const tr = document.createElement('tr');
+                    
+                    const isDir = file.kind === 'directory';
+                    const icon = isDir ? '📁' : getFileEmoji(file.name);
+                    const formattedSize = isDir ? '--' : formatBytes(file.size);
+                    const formattedTime = new Date(file.mtime * 1000).toLocaleString();
+                    const itemPath = currentPath ? `${currentPath}/${file.name}` : file.name;
+                    
+                    tr.innerHTML = `
+                        <td>
+                            <div class="file-name-cell" onclick="${isDir ? `navigatePath('${itemPath}')` : `viewFile('${itemPath}')`}">
+                                <span class="file-icon">${icon}</span>
+                                <span>${file.name}</span>
+                            </div>
+                        </td>
+                        <td>
+                            <span class="type-badge ${isDir ? 'dir' : 'file'}">${file.kind}</span>
+                        </td>
+                        <td>${formattedSize}</td>
+                        <td>${formattedTime}</td>
+                        <td><code>${file.perm}</code></td>
+                        <td>
+                            <div class="actions-cell">
+                                ${!isDir ? `
+                                    <button class="action-icon-btn" onclick="downloadFile('${itemPath}', '${file.name}')" title="Download">
+                                        📥
+                                    </button>
+                                    <button class="action-icon-btn" onclick="viewFile('${itemPath}')" title="Edit">
+                                        ✏️
+                                    </button>
+                                ` : ''}
+                                <button class="action-icon-btn btn-delete" onclick="deleteItem('${itemPath}')" title="Delete">
+                                    🗑️
+                                </button>
+                            </div>
+                        </td>
+                    `;
+                    listContainer.appendChild(tr);
+                });
+            } catch (error) {
+                console.error(error);
+                showToast(`Error loading directory: ${error.message}`, 'error');
+                listContainer.innerHTML = '';
+                emptyState.style.display = 'flex';
+            }
+        }
+
+        // WebSockets events stream
+        function setupWebSocket() {
+            const wsStatusDot = document.getElementById('ws-status-dot');
+            const wsStatusText = document.getElementById('ws-status-text');
+            
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+            
+            wsStatusDot.className = 'status-dot connecting';
+            wsStatusText.innerText = 'Connecting...';
+
+            socket = new WebSocket(wsUrl);
+
+            socket.onopen = () => {
+                wsStatusDot.className = 'status-dot connected';
+                wsStatusText.innerText = 'Live Feed Connected';
+                logTerminal(`WebSocket event channel connected. Listening for remote file changes...`, 'system');
+                showToast('WebSocket connected to filesystem watcher', 'success');
+            };
+
+            socket.onmessage = (event) => {
+                const message = event.data;
+                handleWSMessage(message);
+            };
+
+            socket.onclose = () => {
+                wsStatusDot.className = 'status-dot disconnected';
+                wsStatusText.innerText = 'Disconnected';
+                logTerminal(`WebSocket connection lost. Retrying in 5 seconds...`, 'system');
+                
+                setTimeout(setupWebSocket, 5000);
+            };
+
+            socket.onerror = (error) => {
+                console.error('WS Error:', error);
+                wsStatusDot.className = 'status-dot disconnected';
+                wsStatusText.innerText = 'Error';
+            };
+        }
+
+        function handleWSMessage(message) {
+            // Message format: CHANGE:path|BY:client_id
+            let path = '';
+            let sender = null;
+
+            if (message.startsWith('CHANGE:')) {
+                const payload = message.substring(7);
+                const parts = payload.split('|BY:');
+                path = parts[0];
+                sender = parts[1] || null;
+            } else {
+                logTerminal(`Unknown raw message received: ${message}`, 'system');
+                return;
+            }
+
+            const cleanPath = path.replace(/^\//, ''); // Clean leading slash
+            const filename = cleanPath.split('/').pop() || cleanPath;
+
+            const isOwnChange = sender === CLIENT_ID;
+            
+            if (isOwnChange) {
+                logTerminal(`Local write verified: ${cleanPath}`, 'web-change');
+            } else {
+                const initiator = sender ? `Client [${sender}]` : 'External System';
+                logTerminal(`Change detected: ${cleanPath} (modified by ${initiator})`, 'client-change');
+                showToast(`Remote change: ${filename} modified by ${sender || 'system'}`, 'info');
+                
+                // If change is in the active browsing directory, refresh list automatically
+                const currentBrowsingParent = currentPath ? currentPath + '/' : '';
+                if (cleanPath.startsWith(currentBrowsingParent) && cleanPath.replace(currentBrowsingParent, '').indexOf('/') === -1) {
+                    fetchFiles();
+                } else if (cleanPath === currentPath) {
+                    fetchFiles();
+                }
+            }
+        }
+
+        // File operations
+        async function viewFile(filePath) {
+            try {
+                const response = await fetch(`/files/${filePath}`);
+                if (!response.ok) throw new Error('Could not download file contents');
+                const text = await response.text();
+                
+                document.getElementById('editor-file-title').innerText = `Edit: ${filePath.split('/').pop()}`;
+                document.getElementById('editor-content').value = text;
+                
+                const saveBtn = document.getElementById('editor-save-btn');
+                saveBtn.onclick = () => saveFileContents(filePath);
+                
+                openModal('editor-modal');
+            } catch (error) {
+                showToast(`Error viewing file: ${error.message}`, 'error');
+            }
+        }
+
+        async function saveFileContents(filePath) {
+            const text = document.getElementById('editor-content').value;
+            try {
+                const response = await fetch(`/files/${filePath}`, {
+                    method: 'PUT',
+                    headers: {
+                        'X-Client-ID': CLIENT_ID,
+                        'Content-Type': 'text/plain'
+                    },
+                    body: text
+                });
+                
+                if (response.ok || response.status === 200) {
+                    showToast('File saved successfully', 'success');
+                    closeModal('editor-modal');
+                    fetchFiles();
+                } else {
+                    throw new Error(`Server returned code ${response.status}`);
+                }
+            } catch (error) {
+                showToast(`Error saving file: ${error.message}`, 'error');
+            }
+        }
+
+        async function createNewFolder() {
+            const nameInput = document.getElementById('new-folder-name');
+            const name = nameInput.value.trim();
+            if (!name) return;
+
+            const folderPath = currentPath ? `${currentPath}/${name}` : name;
+
+            try {
+                const response = await fetch(`/mkdir/${folderPath}`, {
+                    method: 'POST',
+                    headers: {
+                        'X-Client-ID': CLIENT_ID
+                    }
+                });
+
+                if (response.ok) {
+                    showToast(`Directory "${name}" created`, 'success');
+                    nameInput.value = '';
+                    closeModal('folder-modal');
+                    fetchFiles();
+                } else {
+                    throw new Error('Create directory failed');
+                }
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function deleteItem(itemPath) {
+            const itemName = itemPath.split('/').pop();
+            if (!confirm(`Are you sure you want to delete "${itemName}"? (Directories will be deleted recursively)`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/files/${itemPath}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'X-Client-ID': CLIENT_ID
+                    }
+                });
+
+                if (response.ok) {
+                    showToast(`"${itemName}" deleted`, 'success');
+                    fetchFiles();
+                } else {
+                    throw new Error(`Failed to delete item (${response.status})`);
+                }
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function downloadFile(itemPath, fileName) {
+            try {
+                const response = await fetch(`/files/${itemPath}`);
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                showToast(`Downloading ${fileName}...`, 'success');
+            } catch (error) {
+                showToast(`Download failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Upload handlers
+        function handleFileSelect(event) {
+            const files = event.target.files;
+            if (files && files.length > 0) {
+                uploadMultipleFiles(files);
+            }
+        }
+
+        function handleDrop(event) {
+            event.preventDefault();
+            document.getElementById('dropzone').classList.remove('dragover');
+            
+            const files = event.dataTransfer.files;
+            if (files && files.length > 0) {
+                uploadMultipleFiles(files);
+            }
+        }
+
+        async function uploadMultipleFiles(files) {
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const uploadPath = currentPath ? `${currentPath}/${file.name}` : file.name;
+                
+                showToast(`Uploading ${file.name}...`, 'info');
+                
+                try {
+                    const response = await fetch(`/files/${uploadPath}`, {
+                        method: 'PUT',
+                        headers: {
+                            'X-Client-ID': CLIENT_ID,
+                        },
+                        body: file
+                    });
+                    
+                    if (response.ok) {
+                        showToast(`Uploaded: ${file.name}`, 'success');
+                    } else {
+                        throw new Error(`Server returned status ${response.status}`);
+                    }
+                } catch (error) {
+                    showToast(`Upload failed for ${file.name}: ${error.message}`, 'error');
+                }
+            }
+            fetchFiles();
+        }
+
+        // Helpers UI
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function getFileEmoji(fileName) {
+            const ext = fileName.split('.').pop().toLowerCase();
+            switch(ext) {
+                case 'txt': case 'md': return '📝';
+                case 'json': case 'toml': case 'yaml': case 'yml': case 'xml': return '⚙️';
+                case 'rs': case 'js': case 'ts': case 'html': case 'css': case 'py': case 'sh': return '💻';
+                case 'jpg': case 'jpeg': case 'png': case 'gif': case 'svg': case 'webp': return '🖼️';
+                case 'pdf': return '📕';
+                case 'zip': case 'tar': case 'gz': case 'rar': return '📦';
+                default: return '📄';
+            }
+        }
+
+        // Modal triggers
+        function openModal(id) {
+            document.getElementById(id).classList.add('active');
+        }
+
+        function closeModal(id) {
+            document.getElementById(id).classList.remove('active');
+        }
+
+        function openNewFolderModal() {
+            document.getElementById('new-folder-name').value = '';
+            openModal('folder-modal');
+        }
+
+        // Terminal Log Console
+        function logTerminal(message, type) {
+            const logContainer = document.getElementById('terminal-log');
+            const row = document.createElement('div');
+            
+            const timestamp = new Date().toLocaleTimeString();
+            let rowClass = 'terminal-row';
+            let badge = 'SYS';
+            let badgeClass = 'sys';
+
+            if (type === 'client-change') {
+                rowClass += ' client-change';
+                badge = 'FUSE';
+                badgeClass = 'fuse';
+            } else if (type === 'web-change') {
+                rowClass += ' web-change';
+                badge = 'WEB';
+                badgeClass = 'web';
+            } else {
+                rowClass += ' system';
+            }
+
+            row.className = rowClass;
+            row.innerHTML = `
+                <span class="terminal-time">[${timestamp}]</span>
+                <span class="terminal-badge ${badgeClass}">${badge}</span>
+                ${escapeHTML(message)}
+            `;
+            
+            logContainer.appendChild(row);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        function clearTerminal() {
+            document.getElementById('terminal-log').innerHTML = `
+                <div class="terminal-row system">
+                    <span class="terminal-time">[System]</span>
+                    <span class="terminal-badge sys">SYS</span>
+                    Log console cleared. Active monitor listening...
+                </div>
+            `;
+        }
+
+        function escapeHTML(str) {
+            return str.replace(/[&<>'"]/g, 
+                tag => ({
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    "'": '&#39;',
+                    '"': '&quot;'
+                }[tag] || tag)
+            );
+        }
+
+        // Toast alert notifications
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toasts');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            
+            let emoji = 'ℹ️';
+            if (type === 'success') emoji = '✅';
+            if (type === 'error') emoji = '❌';
+
+            toast.innerHTML = `
+                <span class="toast-icon">${emoji}</span>
+                <div class="toast-content">${message}</div>
+            `;
+
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(10px)';
+                setTimeout(() => toast.remove(), 300);
+            }, 3500);
+        }
+    </script>
+</body>
+</html>

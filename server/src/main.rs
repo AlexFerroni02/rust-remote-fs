@@ -10,8 +10,8 @@ mod handlers;
 
 use axum::{
     extract::{ws::{Message, WebSocket, WebSocketUpgrade}, State},
-    response::IntoResponse,
-    routing::{get, put, post, delete,patch},
+    response::{Html, IntoResponse},
+    routing::{get, post},
     Router,
 };
 use futures_util::{sink::SinkExt, stream::StreamExt};
@@ -105,6 +105,7 @@ async fn main() {
     });
     // Define the application's routes.
     let app = Router::new()
+        .route("/", get(index_handler))
     // A simple health check endpoint.
         .route("/health", get(|| async { "OK" }))
         .route("/ws", get(websocket_handler))
@@ -133,6 +134,10 @@ async fn websocket_handler(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     ws.on_upgrade(|socket| websocket(socket, state))
+}
+
+async fn index_handler() -> Html<&'static str> {
+    Html(include_str!("index.html"))
 }
 
 async fn websocket(stream: WebSocket, state: AppState) {

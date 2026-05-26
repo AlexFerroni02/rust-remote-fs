@@ -9,6 +9,7 @@ use tokio::io::AsyncSeekExt;
 use tokio::io::AsyncReadExt;
 use std::io::SeekFrom;
 use std::time::{UNIX_EPOCH, Instant};
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::fs;
 use serde::{Deserialize, Serialize};
@@ -36,6 +37,7 @@ pub struct RemoteEntry {
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 pub struct UpdatePermissions {
     perm: String,
 }
@@ -202,7 +204,10 @@ pub async fn list_directory_contents(path: Option<Path<String>>) -> Result<Json<
             if let Ok(metadata) = entry.metadata() {
                 let kind = if metadata.is_dir() { "directory".to_string() } else { "file".to_string() };
                 let mtime = metadata.modified().unwrap_or(UNIX_EPOCH).duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
+                #[cfg(unix)]
                 let perm = format!("{:o}", metadata.permissions().mode() & 0o777);
+                #[cfg(not(unix))]
+                let perm = "755".to_string();
 
                 entries.push(RemoteEntry {
                     name: entry.file_name().to_string_lossy().to_string(),
@@ -297,21 +302,35 @@ pub async fn patch_file(
 ) -> StatusCode {
     record_change(&state, &path, &headers);
     let file_path = format!("{}/{}", DATA_DIR, path);
-    let mode = match u32::from_str_radix(&payload.perm, 8) {
-        Ok(m) => m,
-        Err(_) => return StatusCode::BAD_REQUEST,
-    };
+    
+    #[cfg(unix)]
+    {
+        let mode = match u32::from_str_radix(&payload.perm, 8) {
+            Ok(m) => m,
+            Err(_) => return StatusCode::BAD_REQUEST,
+        };
 
-    match fs::metadata(&file_path) {
-        Ok(metadata) => {
-            let mut perms = metadata.permissions();
-            perms.set_mode(mode);
-            if fs::set_permissions(&file_path, perms).is_ok() {
-                StatusCode::OK
-            } else {
-                StatusCode::INTERNAL_SERVER_ERROR
+        match fs::metadata(&file_path) {
+            Ok(metadata) => {
+                let mut perms = metadata.permissions();
+                perms.set_mode(mode);
+                if fs::set_permissions(&file_path, perms).is_ok() {
+                    StatusCode::OK
+                } else {
+                    StatusCode::INTERNAL_SERVER_ERROR
+                }
             }
+            Err(_) => StatusCode::NOT_FOUND,
         }
-        Err(_) => StatusCode::NOT_FOUND,
+    }
+    
+    #[cfg(not(unix))]
+    {
+        let _ = payload;
+        if fs::metadata(&file_path).is_ok() {
+            StatusCode::OK
+        } else {
+            StatusCode::NOT_FOUND
+        }
     }
 }
